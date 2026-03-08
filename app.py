@@ -1001,6 +1001,9 @@ def run_us_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, c
             hot_str += "\n## 今日涨幅榜\n" + "\n".join(f"  {s}" for s in hot_data["top_gainers"])
     wl_tickers = "、".join(s.get("ticker", "").upper() for s in watchlist_data if s.get("ticker"))
     wl_count = len([s for s in watchlist_data if s.get("ticker")])
+    # 持仓股也排除出推荐列表
+    port_tickers = [t.upper() for t in (portfolio or {}).keys()]
+    exclude_tickers = "、".join(sorted(set(wl_tickers.split('、') + port_tickers) - {''}))
     today = datetime.now().strftime("%Y-%m-%d")
 
     # 候选池
@@ -1064,7 +1067,7 @@ Analyze each stock using this 5-step framework. All output text fields must be w
 - If VIX > 25 OR sector ETF in multi-day decline: entry = "暂不入场，等待ETF企稳后再评估" — this IS the correct answer, do not force a buy condition.
 - If market is normal: give a stock-specific entry condition. Each stock must have a DIFFERENT entry condition.
 
-【STRICT RULE 1】Do NOT include these tickers in recommendations: {wl_tickers}
+【STRICT RULE 1】Do NOT include these tickers in recommendations (watchlist + existing holdings): {exclude_tickers}
 【STRICT RULE 2 — CANDIDATE POOL】
 - If the Candidate Pool above has 10+ stocks: ONLY recommend tickers from the pool. Copy ticker and name EXACTLY.
 - If the pool has 1-9 stocks: Recommend from the pool first, then supplement with well-known sector ETF leaders (S&P 500 components) to reach 5 total. Mark supplemental picks with "market_leader" in the source field.
@@ -2180,7 +2183,7 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
 
 <script>
 var S  = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}};
-var US = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}, market:'us'};
+var US = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}, policy:null, market:'us'};
 var currentMarket = 'a';
 
 function switchMarket(m) {
@@ -3241,7 +3244,7 @@ async function usRunDiagnose() {
     US.diagnose = resp.results || {};
     usRenderPort();
   } catch(e) { console.warn('US diagnose error', e); }
-  if(btn) { btn.disabled=false; btn.textContent='🔬 AI诊股'; }
+  finally { if(btn) { btn.disabled=false; btn.textContent='🔬 AI诊股'; } }
 }
 
 // ── 政策主线 JS ──
