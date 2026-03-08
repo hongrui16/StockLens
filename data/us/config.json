@@ -1,0 +1,24 @@
+{
+  "watchlist": [
+    {
+      "name": "NVIDIA",
+      "ticker": "NVDA"
+    },
+    {
+      "name": "Apple",
+      "ticker": "AAPL"
+    },
+    {
+      "name": "Tesla",
+      "ticker": "TSLA"
+    },
+    {
+      "name": "AMD",
+      "ticker": "AMD"
+    },
+    {
+      "ticker": "EMAT",
+      "name": "Evolution Metals & T"
+    }
+  ]
+}
