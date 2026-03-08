@@ -1,0 +1,22 @@
+{
+  "601360": {
+    "avg_price": 18,
+    "name": "360",
+    "quantity": 100
+  },
+  "603000": {
+    "avg_price": 15,
+    "name": "人民网",
+    "quantity": 100
+  },
+  "002236": {
+    "avg_price": 18.5,
+    "name": "大华技术",
+    "quantity": 1000
+  },
+  "002415": {
+    "avg_price": 30,
+    "name": "海康威视",
+    "quantity": 100
+  }
+}
