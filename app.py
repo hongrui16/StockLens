@@ -39,6 +39,8 @@ CN_PORTFOLIO_FILE       = CN_DATA_DIR / "portfolio.json"
 CN_VIRTUAL_PORT_FILE    = CN_DATA_DIR / "virtual_portfolio.json"
 CN_VIRTUAL_ACCOUNT_FILE = CN_DATA_DIR / "virtual_account.json"
 CN_VIRTUAL_DIAGNOSE_FILE = CN_DATA_DIR / "virtual_diagnose.json"
+CN_PICKS_STATUS_FILE    = CN_DATA_DIR / ".picks_status.json"
+CN_WL_STATUS_FILE       = CN_DATA_DIR / ".wl_status.json"
 
 # ── 政策主线目录（在 china/ 下） ──
 POLICY_DATA_DIR   = CN_DATA_DIR / "policy"
@@ -59,6 +61,8 @@ US_PORTFOLIO_FILE       = US_DATA_DIR / "portfolio.json"
 US_VIRTUAL_PORT_FILE    = US_DATA_DIR / "virtual_portfolio.json"
 US_VIRTUAL_ACCOUNT_FILE = US_DATA_DIR / "virtual_account.json"
 US_VIRTUAL_DIAGNOSE_FILE = US_DATA_DIR / "virtual_diagnose.json"
+US_PICKS_STATUS_FILE    = US_DATA_DIR / ".picks_status.json"
+US_WL_STATUS_FILE       = US_DATA_DIR / ".wl_status.json"
 
 # ── 一次性数据迁移（旧 data/ → 新 data/china/ 和 data/us/） ──
 def _migrate_old_data():
@@ -182,15 +186,23 @@ def load_cn_vport(): return jload(CN_VIRTUAL_PORT_FILE) or {}
 def save_cn_vport(d): jsave(CN_VIRTUAL_PORT_FILE, d)
 def load_cn_vacct(): return jload(CN_VIRTUAL_ACCOUNT_FILE) or {"initial_cash": 100000}
 def save_cn_vacct(d): jsave(CN_VIRTUAL_ACCOUNT_FILE, d)
-def load_cn_vdiagnose(): return jload(CN_VIRTUAL_DIAGNOSE_FILE) or {}
-def save_cn_vdiagnose(d): jsave(CN_VIRTUAL_DIAGNOSE_FILE, d)
+def load_cn_vdiagnose():
+    d = jload(CN_VIRTUAL_DIAGNOSE_FILE) or {}
+    if "results" in d: return d            # new format
+    return {"results": d, "updated_at": ""}  # compat old flat format
+def save_cn_vdiagnose(results, ts=""):
+    jsave(CN_VIRTUAL_DIAGNOSE_FILE, {"results": results, "updated_at": ts or datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 def load_us_vport(): return jload(US_VIRTUAL_PORT_FILE) or {}
 def save_us_vport(d): jsave(US_VIRTUAL_PORT_FILE, d)
 def load_us_vacct(): return jload(US_VIRTUAL_ACCOUNT_FILE) or {"initial_cash": 100000}
 def save_us_vacct(d): jsave(US_VIRTUAL_ACCOUNT_FILE, d)
-def load_us_vdiagnose(): return jload(US_VIRTUAL_DIAGNOSE_FILE) or {}
-def save_us_vdiagnose(d): jsave(US_VIRTUAL_DIAGNOSE_FILE, d)
+def load_us_vdiagnose():
+    d = jload(US_VIRTUAL_DIAGNOSE_FILE) or {}
+    if "results" in d: return d
+    return {"results": d, "updated_at": ""}
+def save_us_vdiagnose(results, ts=""):
+    jsave(US_VIRTUAL_DIAGNOSE_FILE, {"results": results, "updated_at": ts or datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 def load_us_latest():
     files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
@@ -898,6 +910,234 @@ ma5/ma10/ma20/ma30/ma60=各周期均线（权重仅10%，辅助趋势，不作�
     return json.loads(text)
 
 # ── 政策主线 AI（中长线，逻辑完全独立于短线） ──
+def run_watchlist_only_ai(api_key, watchlist_data, market, news, hot_data=None):
+    """只跑自选股分析，不涉及候选池/荐股，token消耗约为全量的60%"""
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    mkt_str = "\n".join(f"  {n}: {v.get('close')} ({'+' if (v.get('change_pct') or 0)>=0 else ''}{v.get('change_pct')}%)"
+                         for n,v in market.items() if isinstance(v,dict) and "close" in v) if "error" not in market else "获取失败"
+    stocks_str = json.dumps([{k:v for k,v in s.items() if k!="sparks"} for s in watchlist_data], ensure_ascii=False, indent=2)
+    hot_str = ""
+    if hot_data:
+        if hot_data.get("sector_flow"):
+            hot_str += "\n## 板块主力资金净流入（实时）\n" + "\n".join(f"  {s}" for s in hot_data["sector_flow"])
+        if hot_data.get("top_gainers"):
+            hot_str += "\n## 今日涨幅榜\n" + "\n".join(f"  {s}" for s in hot_data["top_gainers"][:8])
+        if hot_data.get("limit_up"):
+            hot_str += "\n## 今日连板股\n" + "\n".join(f"  {s}" for s in hot_data["limit_up"][:5])
+    today = datetime.now().strftime("%Y年%m月%d日")
+    prompt = f"""你是资深A股分析师。今天{today}。
+
+## 大盘指数
+{mkt_str}
+
+## 自选股实时数据（需逐一分析）
+字段说明：close=现价 change_pct=涨跌幅% vol_ratio=量比 ma5/ma10/ma20/ma30/ma60=均线
+{stocks_str}
+{hot_str}
+
+分析维度权重：
+  资金/板块(40%)：板块是否出现在资金流入榜？
+  热度(30%)：新闻和涨幅榜是否有题材发酵？
+  量价(20%)：vol_ratio>1.5且涨=有支撑；>2且跌=出货警示
+  趋势(10%)：ma30/ma60辅助中期方向
+
+【严禁推断无数据字段】：不得提换手率、封单、炸板、历史成交额序列。
+
+返回JSON（不要markdown包裹）：
+{{
+  "market_summary": "80字大盘综述",
+  "market_sentiment": "偏多|震荡|偏空",
+  "watchlist_analysis": [
+    {{
+      "code": "6位股票代码",
+      "score_breakdown": "资金:高/中/低 热度:高/中/低 量价:健康/中性/警示 趋势:上/横/下",
+      "sector_heat": "板块资金流向情况",
+      "volume_signal": "量比数值+信号，如：放量上涨(量比1.8)",
+      "suggestion": "买入|关注|持有|观望|减仓",
+      "entry": "结合该股代码的入场条件",
+      "exit": "结合该股代码的离场信号",
+      "reason": "60字：含股票代码、量比数值、板块资金情况"
+    }}
+  ],
+  "hot_sectors": [{{"name": "板块名", "em_keyword": "东方财富关键词"}}]
+}}
+只返回JSON，不包含recommendations字段。"""
+    resp = client.chat.completions.create(model="deepseek-chat", max_tokens=3000, temperature=0.3,
+                                          messages=[{"role":"user","content":prompt}])
+    text = resp.choices[0].message.content.strip()
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            p = part.strip()
+            if p.startswith("json"): p = p[4:].strip()
+            if p.startswith("{"): text = p; break
+    try:
+        result = json.loads(text.strip())
+    except Exception:
+        result = {"watchlist_analysis": [], "market_summary": "", "market_sentiment": "震荡"}
+    # 补全 watchlist_analysis 中的 code 字段（若 AI 写错或遗漏）
+    wla = result.get("watchlist_analysis", [])
+    expected = {s["code"]: s for s in watchlist_data if s.get("code")}
+    fixed = []
+    for item in wla:
+        code = str(item.get("code","")).zfill(6) if item.get("code") else ""
+        if code in expected: fixed.append({**item, "code": code})
+    # 补漏
+    seen = {x["code"] for x in fixed}
+    for code in expected:
+        if code not in seen: fixed.append({"code": code, "suggestion": "观望", "reason": "数据暂缺"})
+    result["watchlist_analysis"] = fixed
+    return result
+
+
+def run_us_watchlist_only_ai(api_key, watchlist_data, market, news, hot_data=None):
+    """只跑美股自选股分析，不涉及候选池/荐股。
+    与 run_us_ai 中的 watchlist 分析完全对齐：使用相同的5步框架、相同字段、相同输出深度。"""
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    today = datetime.now().strftime("%Y-%m-%d")
+    mkt = market or {}
+    vix_val = (mkt.get("VIX") or {}).get("close") or 0
+    try: vix_val = float(vix_val)
+    except: vix_val = 0
+    vix_note = (
+        f"VIX={vix_val} — " +
+        ("Extreme Fear: systemic risk, cut all positions now" if vix_val > 30 else
+         "Fear: reduce high-beta 20-30%" if vix_val > 25 else
+         "Neutral" if vix_val > 18 else
+         "Greed: watch for complacency")
+    )
+    mkt_str = "\n".join(
+        f"  {n}: {v.get('close')} ({'+' if (v.get('change_pct') or 0)>=0 else ''}{v.get('change_pct')}%)"
+        for n, v in mkt.items() if isinstance(v, dict) and "close" in v
+    ) if mkt else "unavailable"
+    stocks_str = json.dumps(
+        [{k: v for k, v in s.items() if k != "sparks"} for s in watchlist_data],
+        ensure_ascii=False, indent=2
+    )
+    hot_str = ""
+    if hot_data:
+        if hot_data.get("fear_greed"):   hot_str += f"\n## 恐慌贪婪\n  {hot_data['fear_greed']}"
+        if hot_data.get("sector_flows"): hot_str += "\n## 板块ETF今日涨跌\n" + "\n".join(f"  {s}" for s in hot_data["sector_flows"])
+        if hot_data.get("top_gainers"):  hot_str += "\n## 今日涨幅榜\n" + "\n".join(f"  {s}" for s in hot_data["top_gainers"][:8])
+    wl_tickers = "、".join(s.get("ticker", "").upper() for s in watchlist_data if s.get("ticker"))
+    wl_count = len([s for s in watchlist_data if s.get("ticker")])
+
+    prompt = f"""You are a senior US equity analyst. Today is {today}.
+{vix_note}
+
+## Market Data
+{mkt_str}
+{hot_str}
+
+## Watchlist Stocks (analyze each one)
+{stocks_str}
+
+{US_STOCK_TYPES}
+{US_MACRO}
+
+---
+## WATCHLIST ANALYSIS RULES
+Analyze each stock using this 5-step framework. All output text fields must be written in Chinese (中文).
+
+**Step 1 — EARNINGS RISK (highest priority)**
+- Earnings within 4 weeks? State approximate date.
+- Position with >20% gain + earnings within 2 weeks → trim 30-50% before the event.
+- Recent earnings BEAT (stock held gains, guidance raised) → confirm hold or add on pullbacks.
+- Recent earnings MISS → reduce immediately, never average down on earnings misses.
+
+**Step 2 — SECTOR ETF MOMENTUM (40% weight)**
+- Which ETF covers this stock (XLK/SOXX/XLV/XLE/XLF/XLY/XLI etc.)?
+- Is that ETF outperforming or underperforming SPY today?
+- Risk-On or Risk-Off environment based on VIX and sector rotation?
+
+**Step 3 — RELATIVE STRENGTH (20% weight)**
+- Stronger or weaker than SPY over the past month? By how much?
+- Volume on up days vs down days: heavy up volume = accumulation; heavy down volume = distribution.
+- Distance from 52-week high: gauge of momentum strength.
+
+**Step 4 — VOLUME/PRICE STRUCTURE (20% weight)**
+- Today's vol_ratio: >1.5 = active, <0.8 = quiet.
+- Up day + high volume = accumulation signal; down day + high volume = distribution warning.
+
+**Step 5 — TECHNICAL (10% weight, confirmation only)**
+- Use MA50/MA200 for trend direction only, never as buy/sell triggers.
+- Never use moving averages as the sole stop-loss reason.
+
+**Entry condition rules:**
+- If VIX > 25 OR sector ETF in multi-day decline: entry = "暂不入场，等待ETF企稳后再评估" — this IS the correct answer, do not force a buy condition.
+- If market is normal: give a stock-specific entry condition. Each stock must have a DIFFERENT entry condition.
+
+【STRICT RULE — WATCHLIST ANALYSIS REQUIRED】
+- The watchlist_analysis array MUST contain EXACTLY {wl_count} items, one per watchlist ticker.
+- The tickers to analyze are: {wl_tickers}
+- Each item's "ticker" field MUST be one of the above tickers, copied EXACTLY (uppercase).
+- Do NOT add extra tickers or omit any.
+- entry 和 exit 字段必须针对每只股个性化，严禁不同股票写相同内容。
+
+Return JSON only, no markdown. ALL text fields must be written in Chinese (中文), except ticker symbols and ETF codes.
+{{
+  "market_summary": "100字中文：聚焦VIX水平、板块轮动、美联储影响的市场摘要",
+  "market_sentiment": "Risk-On|Neutral|Risk-Off",
+  "watchlist_analysis": [
+    {{
+      "ticker": "直接写股票代码如NVDA",
+      "stock_type": "Growth|Momentum|Value|Thematic",
+      "earnings_alert": "只能写以下之一：无近期财报风险 / 财报已过结果beat或miss / 财报约在[具体月份]。无把握一律写无近期财报风险，严禁三只股写相同月份",
+      "sector_etf": "必须写该股正确ETF（NVDA/AMD/AVGO→SOXX；AAPL/MSFT/GOOGL→XLK；TSLA/AMZN/HD→XLY；LLY/UNH→XLV；XOM/CVX→XLE）今日涨跌幅，如SOXX -1.2% 半导体板块偏弱",
+      "relative_strength": "强于SPY|与SPY持平|弱于SPY，近一月具体幅度如-6%",
+      "volume_signal": "必须写出vol_ratio数值，如：下跌放量派发(vol_ratio=1.8)|缩量整理健康(vol_ratio=0.6)",
+      "suggestion": "Buy|Watch|Hold|Reduce|Sell",
+      "entry": "必须含该股ticker+对应ETF名称，每只股不同写法，如：NVDA等SOXX企稳后分批买入；TSLA等XLY反弹确认后介入",
+      "exit": "必须含该股ticker+对应ETF名称，每只股不同写法，如：NVDA若SOXX连跌3日放量→减仓50%；TSLA若XLY破近期低点→止损",
+      "reason": "70字：必须包含该股ticker、对应ETF今日涨跌幅、vol_ratio数值、相对SPY强弱幅度，四项缺一不可"
+    }}
+  ],
+  "hot_sectors": [{{"name": "sector name", "etf": "ETF ticker like XLK"}}]
+}}
+分析 {wl_count} 只股票：{wl_tickers}。只返回JSON，不包含recommendations字段。"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini", max_tokens=4000, temperature=0.3,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    text = resp.choices[0].message.content.strip()
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            p = part.strip()
+            if p.startswith("json"): p = p[4:].strip()
+            if p.startswith("{"): text = p; break
+    try:
+        result = json.loads(text.strip())
+    except Exception:
+        result = {"watchlist_analysis": [], "market_summary": "", "market_sentiment": "Neutral"}
+
+    # ── Post-process: fix wrong/missing tickers in watchlist_analysis ──
+    wl_ticker_list = [s.get("ticker", "").upper() for s in watchlist_data if s.get("ticker")]
+    wla = result.get("watchlist_analysis", [])
+    wla_map = {}
+    for item in wla:
+        t = (item.get("ticker") or "").upper()
+        if t: wla_map[t] = item
+    unmatched_wl = [t for t in wl_ticker_list if t not in wla_map]
+    orphan_items  = [item for item in wla if (item.get("ticker", "").upper() not in wl_ticker_list)]
+    for i, wl_t in enumerate(unmatched_wl):
+        if i < len(orphan_items):
+            orphan_items[i]["ticker"] = wl_t
+            wla_map[wl_t] = orphan_items[i]
+    fixed_wla = []
+    for t in wl_ticker_list:
+        if t in wla_map:
+            item = dict(wla_map[t]); item["ticker"] = t
+            fixed_wla.append(item)
+        else:
+            fixed_wla.append({"ticker": t, "suggestion": "Watch", "reason": "数据暂缺"})
+    result["watchlist_analysis"] = fixed_wla
+    return result
+
+
 def run_policy_ai(api_key, sectors_data, market):
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
@@ -1238,7 +1478,9 @@ def get_cn_vacct(): return jsonify(load_cn_vacct())
 def set_cn_vacct(): save_cn_vacct(request.json or {}); return jsonify({"ok": True})
 
 @app.route("/api/virtual/diagnose", methods=["GET"])
-def get_cn_vdiagnose(): return jsonify(load_cn_vdiagnose())
+def get_cn_vdiagnose():
+    d = load_cn_vdiagnose()
+    return jsonify({"results": d.get("results", d), "updated_at": d.get("updated_at", "")})
 
 @app.route("/api/analysis", methods=["GET"])
 def get_analysis():
@@ -1413,11 +1655,13 @@ def diagnose():
         if body.get("virtual"):
             save_cn_vdiagnose(results)
         else:
+            ts_diag = datetime.now().strftime("%Y-%m-%d %H:%M")
             files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
             for f in files:
                 d = jload(f)
                 if d and d.get("status") == "done":
                     d["diagnose"] = results
+                    d["diagnose_updated_at"] = ts_diag
                     tmp = f.with_name(".tmp_" + f.name)
                     try:
                         tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1425,9 +1669,222 @@ def diagnose():
                     except Exception:
                         if tmp.exists(): tmp.unlink()
                     break
-        return jsonify({"results": results})
+        return jsonify({"results": results, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/watchlist/run", methods=["POST"])
+def cn_wl_run():
+    if CN_WL_STATUS_FILE.exists():
+        st = jload(CN_WL_STATUS_FILE) or {}
+        if st.get("status") == "running":
+            return jsonify({"status": "running"})
+    CN_WL_STATUS_FILE.write_text(json.dumps({"status": "running"}), encoding="utf-8")
+    def _go():
+        try:
+            key = load_key()
+            if not key: raise ValueError("未配置 API Key")
+            cfg  = load_cfg()
+            wl   = [fetch_stock(s["code"], s["name"]) for s in cfg["watchlist"]]
+            mkt  = load_latest().get("market", fetch_market())
+            news = load_latest().get("news", [])
+            hot_data = fetch_market_hot()
+            ai   = run_watchlist_only_ai(key, wl, mkt, news, hot_data)
+            wla  = ai.get("watchlist_analysis", [])
+            ts   = datetime.now().strftime("%Y-%m-%d %H:%M")
+            files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["watchlist"] = wl
+                    d["watchlist_analysis"] = wla
+                    d["watchlist_updated_at"] = ts
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
+            CN_WL_STATUS_FILE.write_text(json.dumps({"status": "done", "watchlist": wl, "watchlist_analysis": wla, "updated_at": ts}, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            CN_WL_STATUS_FILE.write_text(json.dumps({"status": "error", "message": str(e)}), encoding="utf-8")
+    threading.Thread(target=_go, daemon=True).start()
+    return jsonify({"status": "started"})
+
+@app.route("/api/watchlist/status", methods=["GET"])
+def cn_wl_status():
+    if CN_WL_STATUS_FILE.exists():
+        return jsonify(jload(CN_WL_STATUS_FILE) or {"status": "idle"})
+    return jsonify({"status": "idle"})
+
+@app.route("/api/us/watchlist/run", methods=["POST"])
+def us_wl_run():
+    if US_WL_STATUS_FILE.exists():
+        st = jload(US_WL_STATUS_FILE) or {}
+        if st.get("status") == "running":
+            return jsonify({"status": "running"})
+    US_WL_STATUS_FILE.write_text(json.dumps({"status": "running"}), encoding="utf-8")
+    def _go():
+        try:
+            key  = load_openai_key()
+            if not key: raise ValueError("未配置 OpenAI API Key")
+            cfg  = load_us_cfg()
+            wl   = [fetch_us_stock(s["ticker"], s.get("name","")) for s in cfg.get("watchlist", [])]
+            latest = load_us_latest()
+            mkt  = latest.get("market", {})
+            news = latest.get("news", [])
+            hot  = fetch_us_hot()
+            ai   = run_us_watchlist_only_ai(key, wl, mkt, news, hot)
+            wla  = ai.get("watchlist_analysis", [])
+            ts   = datetime.now().strftime("%Y-%m-%d %H:%M")
+            files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["watchlist"] = wl
+                    d["watchlist_analysis"] = wla
+                    d["watchlist_updated_at"] = ts
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
+            US_WL_STATUS_FILE.write_text(json.dumps({"status": "done", "watchlist": wl, "watchlist_analysis": wla, "updated_at": ts}, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            US_WL_STATUS_FILE.write_text(json.dumps({"status": "error", "message": str(e)}), encoding="utf-8")
+    threading.Thread(target=_go, daemon=True).start()
+    return jsonify({"status": "started"})
+
+@app.route("/api/us/watchlist/status", methods=["GET"])
+def us_wl_status():
+    if US_WL_STATUS_FILE.exists():
+        return jsonify(jload(US_WL_STATUS_FILE) or {"status": "idle"})
+    return jsonify({"status": "idle"})
+
+@app.route("/api/picks", methods=["GET"])
+def cn_picks_get():
+    latest = load_latest()
+    return jsonify({
+        "picks": latest.get("picks", []),
+        "not_recommended": latest.get("picks_not_recommended", []),
+        "updated_at": latest.get("picks_updated_at", "")
+    })
+
+@app.route("/api/picks", methods=["POST"])
+def cn_picks():
+    """单独触发 A股 AI荐股，复用最新archive数据+实时候选池"""
+    if CN_PICKS_STATUS_FILE.exists():
+        st = jload(CN_PICKS_STATUS_FILE) or {}
+        if st.get("status") == "running":
+            return jsonify({"status": "running"})
+    CN_PICKS_STATUS_FILE.write_text(json.dumps({"status": "running"}), encoding="utf-8")
+    def _go():
+        try:
+            key = load_key()
+            if not key: raise ValueError("未配置 API Key")
+            latest = load_latest()
+            if latest.get("status") != "done":
+                raise ValueError("请先完成完整分析，再单独触发荐股")
+            wl    = latest.get("watchlist", [])
+            mkt   = latest.get("market", {})
+            news  = latest.get("news", [])
+            port  = load_port()
+            vport = load_cn_vport()
+            hot_data   = fetch_market_hot()
+            candidates = fetch_candidate_pool()
+            ai    = run_ai(key, wl, mkt, news, port, hot_data, candidates, vport)
+            picks = ai.get("recommendations", [])
+            not_rec = ai.get("not_recommended", [])
+            ts    = datetime.now().strftime("%Y-%m-%d %H:%M")
+            files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["picks"] = picks
+                    d["picks_not_recommended"] = not_rec
+                    d["picks_updated_at"] = ts
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
+            CN_PICKS_STATUS_FILE.write_text(json.dumps({"status": "done", "picks": picks, "not_recommended": not_rec, "updated_at": ts}, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            CN_PICKS_STATUS_FILE.write_text(json.dumps({"status": "error", "message": str(e)}), encoding="utf-8")
+    threading.Thread(target=_go, daemon=True).start()
+    return jsonify({"status": "started"})
+
+@app.route("/api/picks/status", methods=["GET"])
+def cn_picks_status():
+    if CN_PICKS_STATUS_FILE.exists():
+        return jsonify(jload(CN_PICKS_STATUS_FILE) or {"status": "idle"})
+    return jsonify({"status": "idle"})
+
+@app.route("/api/us/picks", methods=["GET"])
+def us_picks_get():
+    latest = load_us_latest()
+    return jsonify({
+        "picks": latest.get("picks", []),
+        "not_recommended": latest.get("picks_not_recommended", []),
+        "updated_at": latest.get("picks_updated_at", "")
+    })
+
+@app.route("/api/us/picks", methods=["POST"])
+def us_picks():
+    """单独触发 美股 AI荐股"""
+    if US_PICKS_STATUS_FILE.exists():
+        st = jload(US_PICKS_STATUS_FILE) or {}
+        if st.get("status") == "running":
+            return jsonify({"status": "running"})
+    US_PICKS_STATUS_FILE.write_text(json.dumps({"status": "running"}), encoding="utf-8")
+    def _go():
+        try:
+            key = load_openai_key()
+            if not key: raise ValueError("未配置 OpenAI API Key")
+            latest = load_us_latest()
+            if latest.get("status") != "done":
+                raise ValueError("请先完成完整分析，再单独触发荐股")
+            wl    = latest.get("watchlist", [])
+            mkt   = latest.get("market", {})
+            news  = latest.get("news", [])
+            port  = load_us_port()
+            vport = load_us_vport()
+            hot   = fetch_us_hot()
+            candidates = fetch_us_candidate_pool()
+            ai    = run_us_ai(key, wl, mkt, news, port, hot, candidates, vport)
+            picks = ai.get("recommendations", [])
+            not_rec = ai.get("not_recommended", [])
+            ts    = datetime.now().strftime("%Y-%m-%d %H:%M")
+            files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["picks"] = picks
+                    d["picks_not_recommended"] = not_rec
+                    d["picks_updated_at"] = ts
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
+            US_PICKS_STATUS_FILE.write_text(json.dumps({"status": "done", "picks": picks, "not_recommended": not_rec, "updated_at": ts}, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            US_PICKS_STATUS_FILE.write_text(json.dumps({"status": "error", "message": str(e)}), encoding="utf-8")
+    threading.Thread(target=_go, daemon=True).start()
+    return jsonify({"status": "started"})
+
+@app.route("/api/us/picks/status", methods=["GET"])
+def us_picks_status():
+    if US_PICKS_STATUS_FILE.exists():
+        return jsonify(jload(US_PICKS_STATUS_FILE) or {"status": "idle"})
+    return jsonify({"status": "idle"})
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
@@ -1538,7 +1995,9 @@ def get_us_vacct(): return jsonify(load_us_vacct())
 def set_us_vacct(): save_us_vacct(request.json or {}); return jsonify({"ok": True})
 
 @app.route("/api/us/virtual/diagnose", methods=["GET"])
-def get_us_vdiagnose(): return jsonify(load_us_vdiagnose())
+def get_us_vdiagnose():
+    d = load_us_vdiagnose()
+    return jsonify({"results": d.get("results", d), "updated_at": d.get("updated_at", "")})
 
 @app.route("/api/us/analysis", methods=["GET"])
 def us_get_analysis():
@@ -1722,11 +2181,13 @@ Diagnose every holding. Return JSON only."""
         if body.get("virtual"):
             save_us_vdiagnose(results)
         else:
+            ts_diag = datetime.now().strftime("%Y-%m-%d %H:%M")
             files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
             for f in files:
                 d = jload(f)
                 if d and d.get("status") == "done":
                     d["diagnose"] = results
+                    d["diagnose_updated_at"] = ts_diag
                     tmp = f.with_name(".tmp_" + f.name)
                     try:
                         tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -2101,16 +2562,39 @@ main{padding:16px 20px;overflow-y:visible}
 
   <!-- 持仓+虚拟炒股（永久DOM，页面加载即渲染） -->
   <div id="portWrapper">
-    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddPort()">+ 添加</button> <button class="btn-diagnose" id="diagnoseBtn" onclick="runDiagnose()">🔬 AI诊股</button></div>
+    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddPort()">+ 添加</button> <button class="btn-diagnose" id="diagnoseBtn" onclick="runDiagnose()">🔬 AI诊股</button><span id="diagnoseTs" style="font-size:11px;color:var(--mu);margin-left:8px"></span></div>
     <div id="portSection"></div>
     <div style="border-top:1px solid var(--bd);margin-top:20px;padding-top:16px">
-      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="copyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="vDiagnoseBtn" onclick="runVDiagnose()">🔬 AI诊股</button></div>
+      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="copyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="vDiagnoseBtn" onclick="runVDiagnose()">🔬 AI诊股</button><span id="vDiagnoseTs" style="font-size:11px;color:var(--mu);margin-left:8px"></span></div>
       <div id="vportSection"></div>
     </div>
   </div>
 
-  <!-- 自选股分析+推荐（动态） -->
-  <div id="mc-wl"></div>
+  <!-- 自选股分析（独立触发） -->
+  <div id="wlWrapper">
+    <div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="sec-lbl" style="margin:0">自选股分析</div>
+      <button class="btn btn-sm" id="wlRunBtn"
+        style="background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.3);color:var(--ac);font-size:12px"
+        onclick="runWatchlist()">▶ 单独触发自选分析</button>
+      <span id="wlTs" style="font-size:11px;color:var(--mu)"></span>
+    </div>
+    <div id="mc-wl"></div>
+  </div>
+
+  <!-- AI荐股（独立区块，可单独触发） -->
+  <div id="picksWrapper">
+    <div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="sec-lbl" style="margin:0">
+        <span style="background:rgba(0,201,122,.12);color:var(--up);border:1px solid rgba(0,201,122,.3);padding:2px 10px;border-radius:4px;font-size:12px">🔮 AI荐股</span>
+      </div>
+      <button class="btn btn-sm" id="picksRunBtn"
+        style="background:rgba(0,201,122,.12);border:1px solid rgba(0,201,122,.3);color:var(--up);font-size:12px"
+        onclick="runPicks()">▶ 单独触发荐股</button>
+      <span id="picksTs" style="font-size:11px;color:var(--mu)"></span>
+    </div>
+    <div id="picksEl"></div>
+  </div>
 
   <!-- 政策主线面板（夹在推荐和新闻之间） -->
   <div class="policy-panel">
@@ -2204,16 +2688,39 @@ main{padding:16px 20px;overflow-y:visible}
 
   <!-- 美股持仓+虚拟炒股（永久DOM） -->
   <div id="usPortWrapper">
-    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddPort()">+ 添加</button> <button class="btn-diagnose" id="usDiagnoseBtn" onclick="usRunDiagnose()">🔬 AI诊股</button></div>
+    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddPort()">+ 添加</button> <button class="btn-diagnose" id="usDiagnoseBtn" onclick="usRunDiagnose()">🔬 AI诊股</button><span id="usDiagnoseTs" style="font-size:11px;color:var(--mu);margin-left:8px"></span></div>
     <div id="usPortCards"></div>
     <div style="border-top:1px solid var(--bd);margin-top:20px;padding-top:16px">
-      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usCopyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="usVDiagnoseBtn" onclick="usRunVDiagnose()">🔬 AI诊股</button></div>
+      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usCopyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="usVDiagnoseBtn" onclick="usRunVDiagnose()">🔬 AI诊股</button><span id="usVDiagnoseTs" style="font-size:11px;color:var(--mu);margin-left:8px"></span></div>
       <div id="usVPortSection"></div>
     </div>
   </div>
 
-  <!-- 美股自选股分析+推荐（动态） -->
-  <div id="usMc-wl"></div>
+  <!-- 美股自选股分析（独立触发） -->
+  <div id="usWlWrapper">
+    <div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="sec-lbl" style="margin:0">自选股分析</div>
+      <button class="btn btn-sm" id="usWlRunBtn"
+        style="background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);color:#3b82f6;font-size:12px"
+        onclick="usRunWatchlist()">▶ 单独触发自选分析</button>
+      <span id="usWlTs" style="font-size:11px;color:var(--mu)"></span>
+    </div>
+    <div id="usMc-wl"></div>
+  </div>
+
+  <!-- 美股AI荐股（独立区块） -->
+  <div id="usPicksWrapper">
+    <div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="sec-lbl" style="margin:0">
+        <span style="background:rgba(59,130,246,.12);color:#3b82f6;border:1px solid rgba(59,130,246,.3);padding:2px 10px;border-radius:4px;font-size:12px">🔮 AI荐股</span>
+      </div>
+      <button class="btn btn-sm" id="usPicksRunBtn"
+        style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:#3b82f6;font-size:12px"
+        onclick="usRunPicks()">▶ 单独触发荐股</button>
+      <span id="usPicksTs" style="font-size:11px;color:var(--mu)"></span>
+    </div>
+    <div id="usPicksEl"></div>
+  </div>
   <!-- 美股今日要闻（独立区块，排在推荐后面） -->
   <div id="usNewsEl"></div>
 </main>
@@ -2358,12 +2865,23 @@ async function init() {
       if(data.diagnose && Object.keys(data.diagnose).length > 0) {
         S.diagnose = data.diagnose;
         renderPort();
+        var dts = document.getElementById('diagnoseTs');
+        if(dts && data.diagnose_updated_at) dts.textContent = '诊股：' + data.diagnose_updated_at;
       }
       try {
         var vdiag = await api('/api/virtual/diagnose');
-        if(vdiag && Object.keys(vdiag).length > 0) { S.vdiagnose = vdiag; }
+        if(vdiag && vdiag.results && Object.keys(vdiag.results).length > 0) {
+          S.vdiagnose = vdiag.results;
+          var vdts = document.getElementById('vDiagnoseTs');
+          if(vdts && vdiag.updated_at) vdts.textContent = '诊股：' + vdiag.updated_at;
+        } else if(vdiag && !vdiag.results && Object.keys(vdiag).length > 0) {
+          S.vdiagnose = vdiag; // compat
+        }
       } catch(e2) {}
       renderVPort();
+      // 恢复荐股时间戳
+      var ptsEl = document.getElementById('picksTs');
+      if(ptsEl && data.picks_updated_at) ptsEl.textContent = '更新：' + data.picks_updated_at;
     }
     else if(data && data.status === 'running') { startPolling(); setBannerState('⏳','<b>上次分析仍在进行中…</b>','分析中…',true,'rgba(245,200,66,.07)','rgba(245,200,66,.25)'); }
     else { setBannerState('📭','<span style="color:var(--mu)">暂无分析数据，点右侧按钮开始</span>','↻ 开始分析',false); }
@@ -2700,6 +3218,8 @@ async function runVDiagnose() {
     if(resp.error) { alert('诊股失败：'+resp.error); return; }
     S.vdiagnose = resp.results || {};
     renderVPort();
+    var vdts = document.getElementById('vDiagnoseTs');
+    if(vdts && resp.updated_at) vdts.textContent = '诊股：' + resp.updated_at;
   } catch(e) {
     alert('诊股出错：'+e.message);
   } finally {
@@ -2763,6 +3283,8 @@ async function runDiagnose() {
     if(resp.error) { alert('诊股失败: '+resp.error); return; }
     S.diagnose = resp.results || {};
     renderPort();
+    var dts = document.getElementById('diagnoseTs');
+    if(dts && resp.updated_at) dts.textContent = '诊股：' + resp.updated_at;
   } catch(e) {
     alert('诊股失败: '+e.message);
   } finally {
@@ -2916,60 +3438,12 @@ function renderAnalysis(data) {
 
   // 持仓由永久DOM处理
 
-  // ── 以下写入 mc-wl（自选股+推荐），h继续用于AI摘要 ──
-  var h2 = '';
-  // 自选股
-  h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">自选股分析</div><div class="grid3">';
+  // ── 自选股数据存 sparks，渲染交给 renderWatchlist ──
   (data.watchlist||[]).forEach(function(s) {
     if(s.sparks) S.sparks[s.code] = s.sparks;
-    var ana = (ai.watchlist_analysis||[]).find(function(a){return a.code===s.code;})||{};
-    h2 += buildCard(s, ana);
   });
-  h2 += '</div></div>';
+  renderWatchlist(data.watchlist||[], ai.watchlist_analysis||[], data.watchlist_updated_at||data.updated_at||'');
 
-  // AI推荐 - 分短线/中长线
-  var recos = ai.recommendations || [];
-  var shortTerm  = recos.filter(function(r){ return r.term === '短线'; });
-  var longTerm   = recos.filter(function(r){ return r.term !== '短线'; });
-
-  function buildReco(r) {
-    var em = r.eastmoney_code || ((r.code.charAt(0)==='6'?'sh':'sz')+r.code);
-    var followed = S.wl.some(function(w){return w.code===r.code;});
-    var isShort = r.term === '短线';
-    var cardBg = isShort
-      ? 'background:linear-gradient(135deg,rgba(245,200,66,.05),rgba(255,77,106,.04));border:1px solid rgba(245,200,66,.25)'
-      : 'background:linear-gradient(135deg,rgba(167,139,250,.05),rgba(59,130,246,.04));border:1px solid rgba(167,139,250,.25)';
-    return '<div class="reco-card" style="'+cardBg+'">'
-      +'<div class="reco-top">'
-      +'<div><div class="reco-nm">'+r.name+'</div><div class="reco-cd">'+r.code+'</div></div>'
-      +'<span class="sb sb-buy">'+(r.suggestion||'关注')+'</span></div>'
-      +'<div class="reco-pol">🏛 '+(r.policy_direction||r.sector||'')+'</div>'
-      +(r.term_reason?'<div style="font-size:11px;color:'+(isShort?'var(--gd)':'var(--pu)')+'margin-bottom:5px">🕐 '+r.term_reason+'</div>':'')
-      +'<div class="reco-why">'+(r.reason||'')+'</div>'
-      +(r.stop_loss?'<div class="reco-stop">🛑 止损参考：'+r.stop_loss+'</div>':'')
-      +'<div class="reco-rsk">⚠ '+(r.risk||'')+'</div>'
-      +'<div class="reco-ft"><a class="reco-lnk" href="https://quote.eastmoney.com/'+em+'.html" target="_blank">📈 东方财富</a>'
-      +'<button class="btn-flw'+(followed?' followed':'')+'" id="fl_'+r.code+'" onclick="followStock(\''+r.code+'\',\''+r.name+'\',this)">'
-      +(followed?'✓ 已关注':'+ 关注')+'</button></div></div>';
-  }
-
-  if(shortTerm.length) {
-    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
-       + '<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线推荐</span>'
-       + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">1~2周内题材/资金驱动，严守止损</span></div>'
-       + '<div class="grid3">';
-    shortTerm.forEach(function(r){ h2 += buildReco(r); });
-    h2 += '</div></div>';
-  }
-
-  if(longTerm.length) {
-    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
-       + '<span style="background:rgba(167,139,250,.12);color:var(--pu);border:1px solid rgba(167,139,250,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线推荐</span>'
-       + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">政策+基本面共振，可承受回调</span></div>'
-       + '<div class="grid3">';
-    longTerm.forEach(function(r){ h2 += buildReco(r); });
-    h2 += '</div></div>';
-  }
 
   // 新闻 — 单独渲染到 #newsEl（政策面板下方）
   var newsH = '<div class="card"><div class="sec-lbl" style="margin-bottom:10px">今日财经要闻</div>';
@@ -2983,11 +3457,20 @@ function renderAnalysis(data) {
   newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
 
   document.getElementById('mc').innerHTML = h;
-  var mcWl = document.getElementById('mc-wl'); if(mcWl) mcWl.innerHTML = h2;
+  // mc-wl 由 renderWatchlist 单独写入
   document.getElementById('newsEl').innerHTML = newsH;
   renderPort();
   _persistVPortPrices();
   renderVPort();
+
+  // 渲染荐股（优先用 data.picks，fallback 用 ai.recommendations）
+  var initPicks = data.picks && data.picks.length ? data.picks : (ai.recommendations || []);
+  var initPicksNotRec = data.picks_not_recommended || ai.not_recommended || [];
+  renderPicks(initPicks, initPicksNotRec, data.picks_updated_at || data.updated_at || '');
+
+  // 恢复自选股分析时间戳
+  var wlTs = document.getElementById('wlTs');
+  if(wlTs && data.watchlist_updated_at) wlTs.textContent = '更新于 ' + data.watchlist_updated_at;
 
   // 画图表
   (data.watchlist||[]).forEach(function(s) {
@@ -2996,6 +3479,150 @@ function renderAnalysis(data) {
   });
 
   renderWL();
+}
+
+function buildReco(r) {
+  var em = r.eastmoney_code || ((r.code.charAt(0)==='6'?'sh':'sz')+r.code);
+  var followed = S.wl.some(function(w){return w.code===r.code;});
+  var isShort = r.term === '短线';
+  var cardBg = isShort
+    ? 'background:linear-gradient(135deg,rgba(245,200,66,.05),rgba(255,77,106,.04));border:1px solid rgba(245,200,66,.25)'
+    : 'background:linear-gradient(135deg,rgba(167,139,250,.05),rgba(59,130,246,.04));border:1px solid rgba(167,139,250,.25)';
+  return '<div class="reco-card" style="'+cardBg+'">'
+    +'<div class="reco-top">'
+    +'<div><div class="reco-nm">'+r.name+'</div><div class="reco-cd">'+r.code+'</div></div>'
+    +'<span class="sb sb-buy">'+(r.suggestion||'关注')+'</span></div>'
+    +'<div class="reco-pol">🏛 '+(r.policy_direction||r.sector||'')+'</div>'
+    +(r.term_reason?'<div style="font-size:11px;color:'+(isShort?'var(--gd)':'var(--pu)')+'margin-bottom:5px">🕐 '+r.term_reason+'</div>':'')
+    +'<div class="reco-why">'+(r.reason||'')+'</div>'
+    +(r.stop_loss?'<div class="reco-stop">🛑 止损参考：'+r.stop_loss+'</div>':'')
+    +'<div class="reco-rsk">⚠ '+(r.risk||'')+'</div>'
+    +'<div class="reco-ft"><a class="reco-lnk" href="https://quote.eastmoney.com/'+em+'.html" target="_blank">📈 东方财富</a>'
+    +'<button class="btn-flw'+(followed?' followed':'')+'" id="fl_'+r.code+'" onclick="followStock(\''+r.code+'\',\''+r.name+'\',this)">'
+    +(followed?'✓ 已关注':'+ 关注')+'</button></div></div>';
+}
+
+
+// ── A股 自选股分析 独立渲染 ──
+function renderWatchlist(stocks, wla, ts) {
+  var el = document.getElementById('mc-wl');
+  if(!el) return;
+  if(!stocks.length) { el.innerHTML = ''; return; }
+  var h = '<div class="grid3">';
+  stocks.forEach(function(s) {
+    if(s.sparks) S.sparks[s.code] = s.sparks;
+    var ana = wla.find(function(a){return a.code===s.code;})||{};
+    h += buildCard(s, ana);
+  });
+  h += '</div>';
+  el.innerHTML = h;
+  setTimeout(function(){
+    stocks.forEach(function(s){
+      var sp = S.sparks[s.code];
+      if(sp) drawSpark('cv_'+s.code, sp['365d']||sp['30d']||[], (s.change_pct||0)>=0);
+    });
+  }, 100);
+  var tsEl = document.getElementById('wlTs');
+  if(tsEl && ts) tsEl.textContent = '更新于 ' + ts;
+}
+
+async function runWatchlist() {
+  var btn = document.getElementById('wlRunBtn');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ 分析中...'; }
+  var tsEl = document.getElementById('wlTs');
+  if(tsEl) tsEl.textContent = '请求中…';
+  try {
+    var r = await fetch('/api/watchlist/run', {method:'POST'});
+    if(!r.ok) throw new Error('请求失败');
+    (function poll(){
+      fetch('/api/watchlist/status').then(function(r){return r.json();}).then(function(d){
+        if(d.status==='running'){
+          setTimeout(poll, 3000);
+        } else if(d.status==='done'){
+          renderWatchlist(d.watchlist||[], d.watchlist_analysis||[], d.updated_at||'');
+          if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+        } else {
+          if(tsEl) tsEl.textContent = '❌ ' + (d.message||'失败');
+          if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+        }
+      });
+    })();
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 请求错误';
+    if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+  }
+}
+
+// ── A股 AI荐股 独立渲染 ──
+function renderPicks(recos, notRec, ts) {
+  var el = document.getElementById('picksEl');
+  var tsEl = document.getElementById('picksTs');
+  if(!el) return;
+  if(tsEl && ts) tsEl.textContent = '更新：' + ts;
+  var shortTerm = recos.filter(function(r){ return r.term === '短线'; });
+  var longTerm  = recos.filter(function(r){ return r.term !== '短线'; });
+  if(!shortTerm.length && !longTerm.length && recos.length) longTerm = recos;
+  var h = '';
+  if(!recos.length) {
+    h = '<div style="color:var(--mu);font-size:13px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-top:12px">'
+      + '暂无推荐（候选池为空或所有候选今日涨幅过高）<br>'
+      + '<span style="font-size:11px">可点击「单独触发荐股」重新获取</span></div>';
+  }
+  if(shortTerm.length) {
+    h += '<div style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:8px">'
+       + '<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线推荐</span>'
+       + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">1~2周内题材/资金驱动，严守止损</span></div>'
+       + '<div class="grid3">';
+    shortTerm.forEach(function(r){ h += buildReco(r); });
+    h += '</div></div>';
+  }
+  if(longTerm.length) {
+    h += '<div style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:8px">'
+       + '<span style="background:rgba(167,139,250,.12);color:var(--pu);border:1px solid rgba(167,139,250,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线推荐</span>'
+       + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">政策+基本面共振，可承受回调</span></div>'
+       + '<div class="grid3">';
+    longTerm.forEach(function(r){ h += buildReco(r); });
+    h += '</div></div>';
+  }
+  if((notRec||[]).length) {
+    h += '<div style="margin-top:8px;font-size:11px;color:var(--mu)">🚫 排除：' + notRec.join(' · ') + '</div>';
+  }
+  el.innerHTML = h;
+}
+
+// ── A股 AI荐股 单独触发 ──
+async function runPicks() {
+  var btn = document.getElementById('picksRunBtn');
+  var tsEl = document.getElementById('picksTs');
+  if(btn) { btn.disabled=true; btn.textContent='🔮 荐股中…'; }
+  if(tsEl) tsEl.textContent = '抓取候选池+AI分析中，约30~60秒…';
+  var pollInterval;
+  try {
+    var resp = await api('/api/picks', {method:'POST'});
+    if(resp.status !== 'started' && resp.status !== 'running') {
+      if(tsEl) tsEl.textContent = '启动失败：' + (resp.message || resp.status);
+      return;
+    }
+    // 轮询状态
+    pollInterval = setInterval(async function() {
+      try {
+        var st = await api('/api/picks/status');
+        if(st.status === 'done') {
+          clearInterval(pollInterval);
+          renderPicks(st.picks || [], st.not_recommended || [], st.updated_at || '');
+          if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+        } else if(st.status === 'error') {
+          clearInterval(pollInterval);
+          if(tsEl) tsEl.textContent = '❌ ' + (st.message || '荐股失败');
+          if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+        }
+      } catch(e) {}
+    }, 3000);
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 出错：' + e.message;
+    if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+    if(pollInterval) clearInterval(pollInterval);
+  }
 }
 
 function buildCard(s, ana) {
@@ -3221,12 +3848,23 @@ async function usInit() {
       if(data.diagnose && Object.keys(data.diagnose).length > 0) {
         US.diagnose = data.diagnose;
         usRenderPort();
+        var usdts = document.getElementById('usDiagnoseTs');
+        if(usdts && data.diagnose_updated_at) usdts.textContent = '诊股：' + data.diagnose_updated_at;
       }
       try {
         var uvdiag = await api('/api/us/virtual/diagnose');
-        if(uvdiag && Object.keys(uvdiag).length > 0) { US.vdiagnose = uvdiag; }
+        if(uvdiag && uvdiag.results && Object.keys(uvdiag.results).length > 0) {
+          US.vdiagnose = uvdiag.results;
+          var usvdts = document.getElementById('usVDiagnoseTs');
+          if(usvdts && uvdiag.updated_at) usvdts.textContent = '诊股：' + uvdiag.updated_at;
+        } else if(uvdiag && !uvdiag.results && Object.keys(uvdiag).length > 0) {
+          US.vdiagnose = uvdiag;
+        }
       } catch(e2) {}
       usRenderVPort();
+      // 恢复荐股时间戳
+      var uptsEl = document.getElementById('usPicksTs');
+      if(uptsEl && data.picks_updated_at) uptsEl.textContent = '更新：' + data.picks_updated_at;
     } else if(data && data.status === 'running') {
       usStartPolling(); usSetBanner('⏳','<b>分析进行中…</b>');
     } else {
@@ -3270,7 +3908,7 @@ function usStartPolling() {
         var usts2 = data.updated_at||'';
         usSetBanner('✅', '<b style="color:var(--up)">行情更新</b>　<span style="font-size:11px;color:var(--mu)">自选分析</span>　<span style="font-family:monospace;color:var(--ac)">'+usts2+'</span>');
         usRenderVPort();
-        setTimeout(usRunDiagnose, 500);
+        if(Object.keys(US.port).length>0)  setTimeout(usRunDiagnose,  500);
         if(Object.keys(US.vport).length>0) setTimeout(usRunVDiagnose, 800);
       } else if(data.status === 'error') {
         clearInterval(US.polling);
@@ -3358,25 +3996,9 @@ function usRenderAnalysis(data) {
 
   // 持仓由永久DOM处理
 
-  // ── 以下写入 usMc-wl ──
-  var h2 = '';
-  // 4. 自选股分析
-  var wla = ai.watchlist_analysis || [];
-  var wlStocks = data.watchlist || [];
-  if(wlStocks.length) {
-    h2 += '<div class="sec-lbl" style="margin-top:4px">自选股分析</div><div class="grid3">';
-    wlStocks.forEach(function(s) {
-      var ana = wla.find(function(a){ return (a.ticker||'').toUpperCase()===(s.ticker||'').toUpperCase(); }) || {};
-      h2 += usBuildCard(s, ana);
-      US.sparks[s.ticker] = s.sparks;
-    });
-    h2 += '</div>';
-    setTimeout(function(){
-      wlStocks.forEach(function(s){
-        if(s.sparks) drawSpark('uscv_'+s.ticker, s.sparks['365d']||s.sparks['30d']||[], (s.change_pct||0)>=0);
-      });
-    }, 100);
-  }
+  // ── 美股自选股数据存 sparks，渲染交给 usRenderWatchlist ──
+  (data.watchlist||[]).forEach(function(s){ US.sparks[s.ticker] = s.sparks; });
+  usRenderWatchlist(data.watchlist||[], (ai.watchlist_analysis||[]), data.watchlist_updated_at||data.updated_at||'');
 
   // 5. 热门板块ETF → 侧栏
   var hs = ai.hot_sectors || [];
@@ -3385,43 +4007,23 @@ function usRenderAnalysis(data) {
     if(hsEl) hsEl.innerHTML = hs.map(function(s){
       return '<a href="https://finance.yahoo.com/quote/'+s.etf+'" target="_blank" class="sector-tag" style="border-color:rgba(59,130,246,.3);color:#3b82f6">'+s.name+'<span style="opacity:.6;margin-left:3px">'+s.etf+'</span></a>';
     }).join('');
-    h2 += '</div>'; // close divider
-  }
-
-  // 6. AI荐股
-  var recos = ai.recommendations || [];
-  var shortTerm = recos.filter(function(r){return r.term==='短线';});
-  var longTerm  = recos.filter(function(r){return r.term!=='短线' && r.term;});
-  if(!shortTerm.length && !longTerm.length && recos.length) longTerm = recos;
-
-  if(!recos.length) {
-    h2 += '<div style="color:var(--mu);font-size:13px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-bottom:16px">'
-      +'本次分析暂无推荐（候选池为空或所有候选标的风险过高）<br>'
-      +'<span style="font-size:11px">点击「分析美股」重新分析可获取最新推荐</span></div>';
-  }
-  if(shortTerm.length) {
-    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
-      +'<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线动能</span>'
-      +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">板块ETF强势+量价配合，注明离场信号</span></div>'
-      +'<div class="grid3">';
-    shortTerm.forEach(function(r){ h2 += usBuildReco(r); });
-    h2 += '</div></div>';
-  }
-  if(longTerm.length) {
-    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
-      +'<span style="background:rgba(59,130,246,.12);color:#3b82f6;border:1px solid rgba(59,130,246,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线主线</span>'
-      +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">AI/医疗/能源核心主线，ETF资金+业绩催化共振</span></div>'
-      +'<div class="grid3">';
-    longTerm.forEach(function(r){ h2 += usBuildReco(r); });
-    h2 += '</div></div>';
   }
 
   document.getElementById('usMc').innerHTML = h;
-  var usMcWl = document.getElementById('usMc-wl'); if(usMcWl) usMcWl.innerHTML = h2;
+  // usMc-wl 由 usRenderWatchlist 单独写入
   usRenderPort();
   _persistUsVPortPrices();
   usRenderVPort();
   usRenderWL();
+
+  // 渲染荐股（优先用 data.picks，fallback 用 ai.recommendations）
+  var usInitPicks = data.picks && data.picks.length ? data.picks : (ai.recommendations || []);
+  var usInitNotRec = data.picks_not_recommended || ai.not_recommended || [];
+  usRenderPicks(usInitPicks, usInitNotRec, data.picks_updated_at || data.updated_at || '');
+
+  // 恢复自选股分析时间戳
+  var usWlTs = document.getElementById('usWlTs');
+  if(usWlTs && data.watchlist_updated_at) usWlTs.textContent = '更新于 ' + data.watchlist_updated_at;
 
   // 7. 新闻 — 单独写入 #usNewsEl（#usMc 外面，排在推荐后面）
   var newsH = '<div class="card" style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:10px">今日美股要闻</div>';
@@ -3434,6 +4036,128 @@ function usRenderAnalysis(data) {
   });
   newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
   document.getElementById('usNewsEl').innerHTML = newsH;
+}
+
+
+// ── 美股 自选股分析 独立渲染 ──
+function usRenderWatchlist(stocks, wla, ts) {
+  var el = document.getElementById('usMc-wl');
+  if(!el) return;
+  if(!stocks.length) { el.innerHTML = ''; return; }
+  var h = '<div class="grid3">';
+  stocks.forEach(function(s) {
+    US.sparks[s.ticker] = s.sparks;
+    var ana = wla.find(function(a){return (a.ticker||'').toUpperCase()===(s.ticker||'').toUpperCase();})||{};
+    h += usBuildCard(s, ana);
+  });
+  h += '</div>';
+  el.innerHTML = h;
+  setTimeout(function(){
+    stocks.forEach(function(s){
+      if(s.sparks) drawSpark('uscv_'+s.ticker, s.sparks['365d']||s.sparks['30d']||[], (s.change_pct||0)>=0);
+    });
+  }, 100);
+  var tsEl = document.getElementById('usWlTs');
+  if(tsEl && ts) tsEl.textContent = '更新于 ' + ts;
+}
+
+async function usRunWatchlist() {
+  var btn = document.getElementById('usWlRunBtn');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ 分析中...'; }
+  var tsEl = document.getElementById('usWlTs');
+  if(tsEl) tsEl.textContent = '请求中…';
+  try {
+    var r = await fetch('/api/us/watchlist/run', {method:'POST'});
+    if(!r.ok) throw new Error('请求失败');
+    (function poll(){
+      fetch('/api/us/watchlist/status').then(function(r){return r.json();}).then(function(d){
+        if(d.status==='running'){
+          setTimeout(poll, 3000);
+        } else if(d.status==='done'){
+          usRenderWatchlist(d.watchlist||[], d.watchlist_analysis||[], d.updated_at||'');
+          if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+        } else {
+          if(tsEl) tsEl.textContent = '❌ ' + (d.message||'失败');
+          if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+        }
+      });
+    })();
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 请求错误';
+    if(btn){ btn.disabled=false; btn.textContent='▶ 单独触发自选分析'; }
+  }
+}
+
+// ── 美股 AI荐股 独立渲染 ──
+function usRenderPicks(recos, notRec, ts) {
+  var el = document.getElementById('usPicksEl');
+  var tsEl = document.getElementById('usPicksTs');
+  if(!el) return;
+  if(tsEl && ts) tsEl.textContent = '更新：' + ts;
+  var shortTerm = recos.filter(function(r){return r.term==='短线';});
+  var longTerm  = recos.filter(function(r){return r.term!=='短线' && r.term;});
+  if(!shortTerm.length && !longTerm.length && recos.length) longTerm = recos;
+  var h = '';
+  if(!recos.length) {
+    h = '<div style="color:var(--mu);font-size:13px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-top:12px">'
+      + '暂无推荐（候选池为空或所有候选标的风险过高）<br>'
+      + '<span style="font-size:11px">可点击「单独触发荐股」重新获取</span></div>';
+  }
+  if(shortTerm.length) {
+    h += '<div style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:8px">'
+      +'<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线动能</span>'
+      +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">板块ETF强势+量价配合，注明离场信号</span></div>'
+      +'<div class="grid3">';
+    shortTerm.forEach(function(r){ h += usBuildReco(r); });
+    h += '</div></div>';
+  }
+  if(longTerm.length) {
+    h += '<div style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:8px">'
+      +'<span style="background:rgba(59,130,246,.12);color:#3b82f6;border:1px solid rgba(59,130,246,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线主线</span>'
+      +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">AI/医疗/能源核心主线，ETF+业绩催化共振</span></div>'
+      +'<div class="grid3">';
+    longTerm.forEach(function(r){ h += usBuildReco(r); });
+    h += '</div></div>';
+  }
+  if((notRec||[]).length) {
+    h += '<div style="margin-top:8px;font-size:11px;color:var(--mu)">🚫 排除：' + notRec.join(' · ') + '</div>';
+  }
+  el.innerHTML = h;
+}
+
+// ── 美股 AI荐股 单独触发 ──
+async function usRunPicks() {
+  var btn = document.getElementById('usPicksRunBtn');
+  var tsEl = document.getElementById('usPicksTs');
+  if(btn) { btn.disabled=true; btn.textContent='🔮 荐股中…'; }
+  if(tsEl) tsEl.textContent = '抓取候选池+AI分析中，约30~60秒…';
+  var pollInterval;
+  try {
+    var resp = await api('/api/us/picks', {method:'POST'});
+    if(resp.status !== 'started' && resp.status !== 'running') {
+      if(tsEl) tsEl.textContent = '启动失败：' + (resp.message || resp.status);
+      if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+      return;
+    }
+    pollInterval = setInterval(async function() {
+      try {
+        var st = await api('/api/us/picks/status');
+        if(st.status === 'done') {
+          clearInterval(pollInterval);
+          usRenderPicks(st.picks || [], st.not_recommended || [], st.updated_at || '');
+          if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+        } else if(st.status === 'error') {
+          clearInterval(pollInterval);
+          if(tsEl) tsEl.textContent = '❌ ' + (st.message || '荐股失败');
+          if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+        }
+      } catch(e) {}
+    }, 3000);
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 出错：' + e.message;
+    if(btn) { btn.disabled=false; btn.textContent='▶ 单独触发荐股'; }
+    if(pollInterval) clearInterval(pollInterval);
+  }
 }
 
 function usBuildCard(s, ana) {
@@ -3816,6 +4540,8 @@ async function usRunVDiagnose() {
     if(resp.error) { alert('诊股失败：'+resp.error); return; }
     US.vdiagnose = resp.results || {};
     usRenderVPort();
+    var usvdts = document.getElementById('usVDiagnoseTs');
+    if(usvdts && resp.updated_at) usvdts.textContent = '诊股：' + resp.updated_at;
   } catch(e) {
     alert('诊股出错：'+e.message);
   } finally {
@@ -3842,6 +4568,8 @@ async function usRunDiagnose() {
     var resp = await api('/api/us/diagnose', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({portfolio: US.port})});
     US.diagnose = resp.results || {};
     usRenderPort();
+    var usdts = document.getElementById('usDiagnoseTs');
+    if(usdts && resp.updated_at) usdts.textContent = '诊股：' + resp.updated_at;
   } catch(e) { console.warn('US diagnose error', e); }
   finally { if(btn) { btn.disabled=false; btn.textContent='🔬 AI诊股'; } }
 }
