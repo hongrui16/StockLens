@@ -35,7 +35,10 @@ CN_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 CN_STATUS_FILE   = CN_DATA_DIR / ".status.json"
 CN_CONFIG_FILE   = CN_DATA_DIR / "config.json"
 CN_KEY_FILE      = CN_DATA_DIR / "deepseek_key.txt"
-CN_PORTFOLIO_FILE= CN_DATA_DIR / "portfolio.json"
+CN_PORTFOLIO_FILE       = CN_DATA_DIR / "portfolio.json"
+CN_VIRTUAL_PORT_FILE    = CN_DATA_DIR / "virtual_portfolio.json"
+CN_VIRTUAL_ACCOUNT_FILE = CN_DATA_DIR / "virtual_account.json"
+CN_VIRTUAL_DIAGNOSE_FILE = CN_DATA_DIR / "virtual_diagnose.json"
 
 # ── 政策主线目录（在 china/ 下） ──
 POLICY_DATA_DIR   = CN_DATA_DIR / "policy"
@@ -52,7 +55,10 @@ US_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 US_STATUS_FILE   = US_DATA_DIR / ".status.json"
 US_CONFIG_FILE   = US_DATA_DIR / "config.json"
 US_KEY_FILE      = US_DATA_DIR / "openai_key.txt"
-US_PORTFOLIO_FILE= US_DATA_DIR / "portfolio.json"
+US_PORTFOLIO_FILE       = US_DATA_DIR / "portfolio.json"
+US_VIRTUAL_PORT_FILE    = US_DATA_DIR / "virtual_portfolio.json"
+US_VIRTUAL_ACCOUNT_FILE = US_DATA_DIR / "virtual_account.json"
+US_VIRTUAL_DIAGNOSE_FILE = US_DATA_DIR / "virtual_diagnose.json"
 
 # ── 一次性数据迁移（旧 data/ → 新 data/china/ 和 data/us/） ──
 def _migrate_old_data():
@@ -117,15 +123,15 @@ _us_running = False
 
 # ── 政策主线常量 ──
 
-# 六大政策主线板块（东方财富板块代码）
+# ── 七大政策主线板块（东方财富板块代码） ──
 POLICY_SECTORS = {
     "AI算力/大模型": {"em_code": "BK0734", "policy": "国家AI战略、算力基础设施投入、大模型产业化", "horizon": "2-5年"},
     "半导体/芯片":   {"em_code": "BK0248", "policy": "国产替代、光刻机突破、芯片自主可控",       "horizon": "3-5年"},
-    "人形机器人":    {"em_code": "BK0793", "policy": "制造业升级、智能制造、工业母机",             "horizon": "2-4年"},
-    "低空经济":      {"em_code": "BK1037", "policy": "低空经济写入政府工作报告、无人机商业化",     "horizon": "2-3年"},
-    "新能源/储能":   {"em_code": "BK0435", "policy": "碳中和目标2060、新型电力系统、储能配套",     "horizon": "3-5年"},
+    "人形机器人":    {"em_code": "BK0793", "policy": "制造业升级、具身智能、工业母机",             "horizon": "2-4年"},
+    "商业航天":      {"em_code": "BK0963", "policy": "十五五航天强国战略、国家航天局商业航天司、低轨卫星星座组网", "horizon": "3-5年"},
     "国防军工":      {"em_code": "BK0173", "policy": "国防现代化、装备升级换代、军民融合",         "horizon": "3-5年"},
     "创新药/医疗器械":{"em_code": "BK0465", "policy": "健康中国2030、创新药优先审评、医疗器械国产替代", "horizon": "2-4年"},
+    "有色金属":      {"em_code": "BK0478", "policy": "战略资源安全、新能源/AI算力上游需求、资源国产替代", "horizon": "2-4年"},
 }
 
 # ── helpers ──
@@ -171,6 +177,20 @@ def load_us_cfg():
 def save_us_cfg(d): jsave(US_CONFIG_FILE, d)
 def load_us_port(): return jload(US_PORTFOLIO_FILE) or {}
 def save_us_port(d): jsave(US_PORTFOLIO_FILE, d)
+
+def load_cn_vport(): return jload(CN_VIRTUAL_PORT_FILE) or {}
+def save_cn_vport(d): jsave(CN_VIRTUAL_PORT_FILE, d)
+def load_cn_vacct(): return jload(CN_VIRTUAL_ACCOUNT_FILE) or {"initial_cash": 100000}
+def save_cn_vacct(d): jsave(CN_VIRTUAL_ACCOUNT_FILE, d)
+def load_cn_vdiagnose(): return jload(CN_VIRTUAL_DIAGNOSE_FILE) or {}
+def save_cn_vdiagnose(d): jsave(CN_VIRTUAL_DIAGNOSE_FILE, d)
+
+def load_us_vport(): return jload(US_VIRTUAL_PORT_FILE) or {}
+def save_us_vport(d): jsave(US_VIRTUAL_PORT_FILE, d)
+def load_us_vacct(): return jload(US_VIRTUAL_ACCOUNT_FILE) or {"initial_cash": 100000}
+def save_us_vacct(d): jsave(US_VIRTUAL_ACCOUNT_FILE, d)
+def load_us_vdiagnose(): return jload(US_VIRTUAL_DIAGNOSE_FILE) or {}
+def save_us_vdiagnose(d): jsave(US_VIRTUAL_DIAGNOSE_FILE, d)
 
 def load_us_latest():
     files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
@@ -224,7 +244,7 @@ def load_policy_latest():
 
 # ── 政策主线数据抓取 ──
 def fetch_policy_sector_data():
-    """抓取六大政策板块：板块资金流 + 板块内主力净流入 Top5 个股 + yfinance 90日走势"""
+    """抓取七大政策板块：板块资金流 + 板块内主力净流入 Top5 个股 + yfinance 90日走势"""
     results = []
     for sector_name, info in POLICY_SECTORS.items():
         sector = {
@@ -691,11 +711,11 @@ A股政策主线（2025-2026中长期）：
 七大政策板块（按当前资金热度排序）：
   1. AI算力/大模型 — 国产大模型落地、算力基础设施、CPO/光模块/液冷服务器
   2. 半导体/芯片 — 国产替代加速、存储芯片/设备/材料全链条
-  3. 人形机器人 — 特斯拉/华为产业链、电机/减速器/传感器核心零部件
-  4. 低空经济 — eVTOL/无人机/空管，各省市加速落地
+  3. 人形机器人 — 具身智能/特斯拉产业链、电机/减速器/传感器核心零部件
+  4. 商业航天 — 低轨卫星星座组网、可回收火箭、手机直连卫星商业化
   5. 国防军工 — 信息化装备、航空发动机、导弹产业链
-  6. 新能源/储能 — 大储/工商储政策加持，出海逻辑持续
-  7. 创新药/医疗器械 — 国产创新药出海+集采后周期修复
+  6. 创新药/医疗器械 — 国产创新药出海+集采后周期修复
+  7. 有色金属 — 铜/铝/稀土战略资源、AI算力+新能源上游需求拉动
 
 注意：
 政策方向仅作为长期产业背景，不代表当前资金流入。
@@ -736,7 +756,7 @@ A股分析评分模型（权重之和=100%）：
   4. 均线（最后参考）：中线持仓破MA30且资金同步流出才考虑
 """
 
-def run_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, candidates=None):
+def run_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, candidates=None, vport=None):
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     mkt_str = "\n".join(f"  {n}: {v.get('close')} ({'+' if (v.get('change_pct') or 0)>=0 else ''}{v.get('change_pct')}%)"
@@ -777,6 +797,9 @@ def run_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, cand
         )
 
     wl_codes = "、".join(s.get("code","") for s in watchlist_data if s.get("code"))
+    port_codes = "、".join(k for k in (portfolio or {}).keys())
+    vport_codes = "、".join(k for k in (vport or {}).keys())
+    all_exclude_codes = "、".join(filter(None, [wl_codes, port_codes, vport_codes]))
 
     prompt = f"""你是资深A股分析师。今天{datetime.now().strftime('%Y年%m月%d日')}。
 
@@ -817,7 +840,7 @@ ma5/ma10/ma20/ma30/ma60=各周期均线（权重仅10%，辅助趋势，不作�
 【实盘推荐铁律——关乎资金安全，必须绝对遵守】
 1. recommendations 中的每一只股票，【必须且只能】从上方候选池中挑选，代码和名称必须与候选池完全一致。
 2. 禁止出现候选池以外的任何股票代码或名称，禁止凭记忆或推断填写代码。
-3. 禁止推荐以下自选股代码：{wl_codes}
+3. 禁止推荐以下代码（自选股+实盘持仓+虚拟持仓，一个都不能出现）：{all_exclude_codes}
 4. 如果候选池为空，或池中所有股票今日涨幅均超过 9%（追高风险过大），返回 recommendations: []，宁可不推，绝不乱推。
 5. 推荐理由必须引用候选池中的真实数据，格式示例：「净流入X亿，量比X，涨幅X%」。
 6. 换手率 >15% 的标的，必须在 risk 字段注明「今日换手率过高，建议等回踩再介入」。
@@ -985,7 +1008,7 @@ Recommendations MUST be backed by BOTH recent sector ETF inflow AND an earnings/
 Do NOT recommend purely on sector theme without confirming ETF momentum.
 """
 
-def run_us_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, candidates=None):
+def run_us_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, candidates=None, vport=None):
     from openai import OpenAI
     client = OpenAI(api_key=api_key)  # OpenAI GPT-4o-mini
     mkt_str = "\n".join(
@@ -1006,9 +1029,10 @@ def run_us_ai(api_key, watchlist_data, market, news, portfolio, hot_data=None, c
             hot_str += "\n## 今日涨幅榜\n" + "\n".join(f"  {s}" for s in hot_data["top_gainers"])
     wl_tickers = "、".join(s.get("ticker", "").upper() for s in watchlist_data if s.get("ticker"))
     wl_count = len([s for s in watchlist_data if s.get("ticker")])
-    # 持仓股也排除出推荐列表
-    port_tickers = [t.upper() for t in (portfolio or {}).keys()]
-    exclude_tickers = "、".join(sorted(set(wl_tickers.split('、') + port_tickers) - {''}))
+    # 持仓+虚拟持仓也排除出推荐列表
+    port_tickers  = [t.upper() for t in (portfolio or {}).keys()]
+    vport_tickers = [t.upper() for t in (vport or {}).keys()]
+    exclude_tickers = "、".join(sorted(set(wl_tickers.split('、') + port_tickers + vport_tickers) - {''}))
     today = datetime.now().strftime("%Y-%m-%d")
 
     # 候选池
@@ -1201,6 +1225,21 @@ def get_port(): return jsonify(load_port())
 @app.route("/api/portfolio", methods=["POST"])
 def set_port(): save_port(request.json or {}); return jsonify({"ok": True})
 
+@app.route("/api/virtual/portfolio", methods=["GET"])
+def get_cn_vport(): return jsonify(load_cn_vport())
+
+@app.route("/api/virtual/portfolio", methods=["POST"])
+def set_cn_vport(): save_cn_vport(request.json or {}); return jsonify({"ok": True})
+
+@app.route("/api/virtual/account", methods=["GET"])
+def get_cn_vacct(): return jsonify(load_cn_vacct())
+
+@app.route("/api/virtual/account", methods=["POST"])
+def set_cn_vacct(): save_cn_vacct(request.json or {}); return jsonify({"ok": True})
+
+@app.route("/api/virtual/diagnose", methods=["GET"])
+def get_cn_vdiagnose(): return jsonify(load_cn_vdiagnose())
+
 @app.route("/api/analysis", methods=["GET"])
 def get_analysis():
     # CN_STATUS_FILE 只用于 running/error 状态追踪
@@ -1226,12 +1265,12 @@ def run():
         try:
             key = load_key()
             if not key: raise ValueError("未配置 API Key，请点设置填写")
-            cfg = load_cfg(); port = load_port()
+            cfg = load_cfg(); port = load_port(); vport = load_cn_vport()
             wl = [fetch_stock(s["code"],s["name"]) for s in cfg["watchlist"]]
             mkt = fetch_market(); news = fetch_news()
             hot_data   = fetch_market_hot()
             candidates = fetch_candidate_pool()
-            ai = run_ai(key, wl, mkt, news, port, hot_data, candidates)
+            ai = run_ai(key, wl, mkt, news, port, hot_data, candidates, vport)
             result = {"status":"done","updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
                       "market":mkt,"watchlist":wl,"news":news,"ai":ai}
             save_cn_latest(result)
@@ -1370,14 +1409,22 @@ def diagnose():
                 if p.startswith("{"): text = p; break
         data = json.loads(text.strip())
         results = data.get("results", {})
-        # 把诊股结果存入最新 archive 文件
-        files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
-        for f in files:
-            d = jload(f)
-            if d and d.get("status") == "done":
-                d["diagnose"] = results
-                f.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-                break
+        # 把诊股结果存入对应文件
+        if body.get("virtual"):
+            save_cn_vdiagnose(results)
+        else:
+            files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["diagnose"] = results
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
         return jsonify({"results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1478,6 +1525,21 @@ def us_get_port(): return jsonify(load_us_port())
 @app.route("/api/us/portfolio", methods=["POST"])
 def us_set_port(): save_us_port(request.json or {}); return jsonify({"ok": True})
 
+@app.route("/api/us/virtual/portfolio", methods=["GET"])
+def get_us_vport(): return jsonify(load_us_vport())
+
+@app.route("/api/us/virtual/portfolio", methods=["POST"])
+def set_us_vport(): save_us_vport(request.json or {}); return jsonify({"ok": True})
+
+@app.route("/api/us/virtual/account", methods=["GET"])
+def get_us_vacct(): return jsonify(load_us_vacct())
+
+@app.route("/api/us/virtual/account", methods=["POST"])
+def set_us_vacct(): save_us_vacct(request.json or {}); return jsonify({"ok": True})
+
+@app.route("/api/us/virtual/diagnose", methods=["GET"])
+def get_us_vdiagnose(): return jsonify(load_us_vdiagnose())
+
 @app.route("/api/us/analysis", methods=["GET"])
 def us_get_analysis():
     if US_STATUS_FILE.exists():
@@ -1498,11 +1560,11 @@ def us_run():
         try:
             key = load_openai_key()
             if not key: raise ValueError("未配置 OpenAI API Key，请在设置中填写")
-            cfg  = load_us_cfg(); port = load_us_port()
+            cfg  = load_us_cfg(); port = load_us_port(); vport = load_us_vport()
             wl   = [fetch_us_stock(s["ticker"], s.get("name", "")) for s in cfg["watchlist"]]
             mkt  = fetch_us_market(); news = fetch_us_news(); hot = fetch_us_hot()
             us_candidates = fetch_us_candidate_pool()
-            ai   = run_us_ai(key, wl, mkt, news, port, hot, us_candidates)
+            ai   = run_us_ai(key, wl, mkt, news, port, hot, us_candidates, vport)
             result = {"status": "done", "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                       "market": mkt, "watchlist": wl, "news": news, "ai": ai}
             save_us_latest(result)
@@ -1656,14 +1718,22 @@ Diagnose every holding. Return JSON only."""
                 if p.startswith("{"): text = p; break
         data = json.loads(text.strip())
         results = data.get("results", {})
-        # 把诊股结果存入最新 archive 文件
-        files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
-        for f in files:
-            d = jload(f)
-            if d and d.get("status") == "done":
-                d["diagnose"] = results
-                f.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-                break
+        # 把诊股结果存入对应文件
+        if body.get("virtual"):
+            save_us_vdiagnose(results)
+        else:
+            files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+            for f in files:
+                d = jload(f)
+                if d and d.get("status") == "done":
+                    d["diagnose"] = results
+                    tmp = f.with_name(".tmp_" + f.name)
+                    try:
+                        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                        tmp.rename(f)
+                    except Exception:
+                        if tmp.exists(): tmp.unlink()
+                    break
         return jsonify({"results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1794,7 +1864,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 2
 .btn-g:hover{color:var(--tx);border-color:var(--ac)}
 .btn-sm{padding:4px 10px;font-size:12px;border-radius:5px}
 .layout{display:grid;grid-template-columns:255px 1fr;min-height:calc(100vh - 54px)}
-aside{background:var(--sf);border-right:1px solid var(--bd);padding:14px;display:flex;flex-direction:column;overflow-y:auto;max-height:calc(100vh - 54px)}
+aside{background:var(--sf);border-right:1px solid var(--bd);padding:14px;display:flex;flex-direction:column;overflow-y:auto;position:sticky;top:54px;height:calc(100vh - 54px);align-self:start}
 .stitle{font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--mu);text-transform:uppercase;margin:14px 0 8px}
 .stitle:first-child{margin-top:0}
 .wl-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid var(--bd);margin-bottom:5px;cursor:pointer;transition:all .2s}
@@ -1819,7 +1889,7 @@ aside{background:var(--sf);border-right:1px solid var(--bd);padding:14px;display
 .ext-link-info{display:flex;flex-direction:column}
 .ext-link-name{font-size:12px;font-weight:500;color:var(--tx)}
 .ext-link-desc{font-size:10px;color:var(--mu);margin-top:1px}
-main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
+main{padding:16px 20px;overflow-y:visible}
 .idx-bar{display:flex;gap:16px;flex-wrap:wrap;padding:12px 18px;border-radius:10px;background:var(--sf);border:1px solid var(--bd);margin-bottom:16px;align-items:center}
 .idx-item{text-align:center;min-width:90px}
 .idx-n{font-size:11px;color:var(--mu);margin-bottom:3px}
@@ -1998,6 +2068,10 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
       <span class="ext-link-icon">🐦</span>
       <div class="ext-link-info"><span class="ext-link-name">雪球</span><span class="ext-link-desc">社区讨论 / 组合 / 深度分析</span></div>
     </a>
+    <a class="ext-link" href="https://www.ithome.com/tag/aigc/" target="_blank">
+      <span class="ext-link-icon">🤖</span>
+      <div class="ext-link-info"><span class="ext-link-name">IT之家 AI</span><span class="ext-link-desc">AI / 科技行业最新动态</span></div>
+    </a>
     <a class="ext-link" href="https://www.cls.cn" target="_blank">
       <span class="ext-link-icon">⚡</span>
       <div class="ext-link-info"><span class="ext-link-name">财联社</span><span class="ext-link-desc">实时快讯 / 电报</span></div>
@@ -2022,21 +2096,29 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
     <span id="dataBannerText" style="font-size:13px;color:var(--tx)">暂无数据</span>
   </div>
   <div id="idxBar" class="idx-bar" style="display:none"></div>
-  <div id="mc">
-    <div class="empty-state">
-      <div class="empty-icon">📊</div>
-      <div style="font-size:16px;color:var(--tx);margin-bottom:8px">欢迎使用 A股智能分析</div>
-      <div>在设置中填写 DeepSeek API Key，然后点击「开始分析」</div>
+  <!-- AI摘要（动态） -->
+  <div id="mc"><div class="empty-state"><div class="empty-icon">📊</div><div style="font-size:16px;color:var(--tx);margin-bottom:8px">欢迎使用 A股智能分析</div><div style="color:var(--mu)">在设置中填写 DeepSeek API Key，然后点击「开始分析」</div></div></div>
+
+  <!-- 持仓+虚拟炒股（永久DOM，页面加载即渲染） -->
+  <div id="portWrapper">
+    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddPort()">+ 添加</button> <button class="btn-diagnose" id="diagnoseBtn" onclick="runDiagnose()">🔬 AI诊股</button></div>
+    <div id="portSection"></div>
+    <div style="border-top:1px solid var(--bd);margin-top:20px;padding-top:16px">
+      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="copyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="vDiagnoseBtn" onclick="runVDiagnose()">🔬 AI诊股</button></div>
+      <div id="vportSection"></div>
     </div>
   </div>
+
+  <!-- 自选股分析+推荐（动态） -->
+  <div id="mc-wl"></div>
 
   <!-- 政策主线面板（夹在推荐和新闻之间） -->
   <div class="policy-panel">
     <div class="policy-hdr" onclick="togglePolicy()">
       <div class="policy-hdr-l">
         <span class="policy-badge">🏛 政策主线</span>
-        <span style="font-size:13px;color:var(--tx);font-weight:600">中长线战略配置</span>
-        <span style="font-size:11px;color:var(--mu)">AI算力 · 半导体 · 机器人 · 低空 · 新能源 · 军工 · 创新药</span>
+        <span style="font-size:13px;color:var(--tx);font-weight:600">七大政策板块中长线战略</span>
+        <span style="font-size:11px;color:var(--mu)">AI算力 · 半导体 · 机器人 · 商业航天 · 军工 · 创新药 · 有色金属</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="policyTime" style="font-size:11px;color:var(--mu)"></span>
@@ -2049,7 +2131,7 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
     <div class="policy-body" id="policyBody">
       <div id="policyContent">
         <div style="color:var(--mu);font-size:13px;padding:20px 0;text-align:center">
-          点击「分析主线」获取六大政策板块的中长线分析<br>
+          点击「分析主线」获取七大政策板块的中长线分析<br>
           <span style="font-size:11px;opacity:.7">分析耗时约60-90秒（需抓取个股yfinance数据）</span>
         </div>
       </div>
@@ -2117,13 +2199,21 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
     <span id="usDataBannerText" style="font-size:13px;color:var(--tx)">暂无数据</span>
   </div>
   <div id="usIdxBar" class="idx-bar" style="display:none"></div>
-  <div id="usMc">
-    <div class="empty-state">
-      <div class="empty-icon">🇺🇸</div>
-      <div style="font-size:16px;color:var(--tx);margin-bottom:8px">美股智能分析</div>
-      <div>切换到美股市场后点击「开始分析」</div>
+  <!-- 美股AI摘要（动态） -->
+  <div id="usMc"><div class="empty-state"><div class="empty-icon">🇺🇸</div><div style="font-size:16px;color:var(--tx);margin-bottom:8px">美股智能分析</div><div style="color:var(--mu)">切换到美股市场后点击「开始分析」</div></div></div>
+
+  <!-- 美股持仓+虚拟炒股（永久DOM） -->
+  <div id="usPortWrapper">
+    <div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddPort()">+ 添加</button> <button class="btn-diagnose" id="usDiagnoseBtn" onclick="usRunDiagnose()">🔬 AI诊股</button></div>
+    <div id="usPortCards"></div>
+    <div style="border-top:1px solid var(--bd);margin-top:20px;padding-top:16px">
+      <div class="sec-lbl">🎮 虚拟炒股 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddVPort()">+ 添加</button> <button class="btn btn-g btn-sm" style="font-size:11px" onclick="usCopyPortToVirt()">⇒ 复制实盘</button> <button class="btn-diagnose" id="usVDiagnoseBtn" onclick="usRunVDiagnose()">🔬 AI诊股</button></div>
+      <div id="usVPortSection"></div>
     </div>
   </div>
+
+  <!-- 美股自选股分析+推荐（动态） -->
+  <div id="usMc-wl"></div>
   <!-- 美股今日要闻（独立区块，排在推荐后面） -->
   <div id="usNewsEl"></div>
 </main>
@@ -2183,8 +2273,10 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
 </div>
 
 <script>
-var S  = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}};
-var US = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}, policy:null, market:'us'};
+var S  = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}, policy:null,
+          vport:{}, vaccount:{initial_cash:100000}, vdiagnose:{}, priceCache:{}};
+var US = {wl:[], port:{}, analysis:null, polling:null, sparks:{}, diagnose:{}, policy:null, market:'us',
+          vport:{}, vaccount:{initial_cash:100000}, vdiagnose:{}, priceCache:{}};
 var currentMarket = 'a';
 
 function switchMarket(m) {
@@ -2235,7 +2327,18 @@ async function init() {
       var port = await api('/api/portfolio');
       S.port = (port && typeof port === 'object') ? port : {};
     } catch(e2) { S.port = {}; }
+    try {
+      var vp = await api('/api/virtual/portfolio');
+      S.vport = (vp && typeof vp === 'object') ? vp : {};
+    } catch(e3) { S.vport = {}; }
+    try {
+      var va = await api('/api/virtual/account');
+      S.vaccount = (va && typeof va === 'object') ? va : {initial_cash:100000};
+    } catch(e4) { S.vaccount = {initial_cash:100000}; }
     renderWL();
+    renderPort();
+    renderVPort();
+    refreshPortPrices(); // fetch prices independently
     // Show welcome
     // Show banner immediately
     if(cfg.has_key) {
@@ -2256,6 +2359,11 @@ async function init() {
         S.diagnose = data.diagnose;
         renderPort();
       }
+      try {
+        var vdiag = await api('/api/virtual/diagnose');
+        if(vdiag && Object.keys(vdiag).length > 0) { S.vdiagnose = vdiag; }
+      } catch(e2) {}
+      renderVPort();
     }
     else if(data && data.status === 'running') { startPolling(); setBannerState('⏳','<b>上次分析仍在进行中…</b>','分析中…',true,'rgba(245,200,66,.07)','rgba(245,200,66,.25)'); }
     else { setBannerState('📭','<span style="color:var(--mu)">暂无分析数据，点右侧按钮开始</span>','↻ 开始分析',false); }
@@ -2319,12 +2427,32 @@ function renderPort() {
   if(!el) return;
   var codes = Object.keys(S.port);
   if(!codes.length) { el.innerHTML='<p style="color:var(--mu);font-size:12px;margin-bottom:12px">还没有持仓</p>'; return; }
-  var h = '<div class="grid4">';
+  // ── 汇总计算 ──
+  var totalCost=0,totalVal=0,hasVal=false;
+  codes.forEach(function(code2){
+    var p2=S.port[code2];
+    var d2=S.analysis&&S.analysis.watchlist&&S.analysis.watchlist.find(function(w){return w.code===code2;});
+    var c2=(d2&&d2.close)?d2.close:(S.priceCache[code2]?S.priceCache[code2].close:null);
+    totalCost+=(parseFloat(p2.avg_price)||0)*(parseInt(p2.quantity)||0);
+    if(c2){totalVal+=c2*(parseInt(p2.quantity)||0);hasVal=true;}
+  });
+  var totalPnl=hasVal?totalVal-totalCost:null;
+  var totalPnlPct=(totalPnl!==null&&totalCost)?(totalPnl/totalCost*100).toFixed(2):null;
+  var sumCls=(totalPnl||0)>=0?'up':'dn';
+  var sumSign=(totalPnl!==null&&totalPnl>=0)?'+':'-';
+  var h='<div style="background:var(--c2);border-radius:10px;padding:8px 16px;margin-bottom:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:center">'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">投入资金</div><div style="font-size:14px;font-weight:700">¥'+(totalCost?totalCost.toFixed(0):'--')+'</div></div>'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">账户资产</div><div style="font-size:14px;font-weight:700">'+(hasVal?'¥'+totalVal.toFixed(0):'--')+'</div></div>'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">总收益</div>'
+    +'<div style="font-size:14px;font-weight:700" class="'+sumCls+'">'+(totalPnl!==null?sumSign+'¥'+Math.abs(totalPnl).toFixed(0):'--')+'</div>'
+    +(totalPnlPct!==null?'<div style="font-size:11px" class="'+sumCls+'">'+sumSign+totalPnlPct+'%</div>':'')
+    +'</div></div>'
+    +'<div class="grid4">';
   codes.forEach(function(code) {
     var pos = S.port[code];
     var d   = S.analysis && S.analysis.watchlist && S.analysis.watchlist.find(function(w){return w.code===code;});
     var ai  = S.analysis && S.analysis.ai && S.analysis.ai.watchlist_analysis && S.analysis.ai.watchlist_analysis.find(function(w){return w.code===code;});
-    var cur = d ? d.close : null;
+    var cur = (d && d.close) ? d.close : (S.priceCache[code] ? S.priceCache[code].close : null);
     var avg = parseFloat(pos.avg_price)||0;
     var qty = parseInt(pos.quantity)||0;
     var cost = avg*qty;
@@ -2347,7 +2475,7 @@ function renderPort() {
        +'<div style="text-align:right;margin-top:6px"><button class="btn btn-g btn-sm" style="font-size:10px" onclick="delPort(\''+code+'\')">移除</button></div>'
        +'</div>';
   });
-  h += '</div>';
+  h += '</div></div>';
   el.innerHTML = h;
 }
 
@@ -2362,6 +2490,234 @@ async function delPort(code) {
   await api('/api/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.port)});
   renderPort();
 }
+
+// ── 虚拟持仓 (A股) ──
+// ── 独立价格缓存（持仓+虚拟炒股，不依赖自选股分析）──
+async function refreshPortPrices() {
+  // Gather all unique codes from port + vport
+  var codes = {};
+  Object.keys(S.port).forEach(function(c){ codes[c] = S.port[c].name||c; });
+  Object.keys(S.vport).forEach(function(c){ codes[c] = S.vport[c].name||c; });
+  var list = Object.keys(codes).map(function(c){ return {code:c, name:codes[c]}; });
+  if(!list.length) return;
+  try {
+    var res = await api('/api/prices', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({codes:list})});
+    if(res && typeof res === 'object') {
+      Object.assign(S.priceCache, res);
+      renderPort();
+      renderVPort();
+    }
+  } catch(e) { console.warn('refreshPortPrices failed:', e.message); }
+}
+
+async function usRefreshPortPrices() {
+  var tickers = {};
+  Object.keys(US.port).forEach(function(t){ tickers[t] = US.port[t].name||t; });
+  Object.keys(US.vport).forEach(function(t){ tickers[t] = US.vport[t].name||t; });
+  var list = Object.keys(tickers).map(function(t){ return {ticker:t, name:tickers[t]}; });
+  if(!list.length) return;
+  try {
+    var res = await api('/api/us/prices', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tickers:list})});
+    if(res && typeof res === 'object') {
+      Object.assign(US.priceCache, res);
+      usRenderPort();
+      usRenderVPort();
+    }
+  } catch(e) { console.warn('usRefreshPortPrices failed:', e.message); }
+}
+
+
+// ── 价格持久化：把最新分析价格写入 vport last_close ──
+function _persistVPortPrices() {
+  if(!S.analysis || !S.vport) return;
+  var changed = false;
+  var priceMap = {};
+  (S.analysis.watchlist||[]).forEach(function(w){ if(w.close) priceMap[w.code]=w.close; });
+  Object.keys(S.vport).forEach(function(code) {
+    if(priceMap[code] && S.vport[code].last_close !== priceMap[code]) {
+      S.vport[code].last_close = priceMap[code];
+      changed = true;
+    }
+  });
+  if(changed) api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
+}
+
+function _persistUsVPortPrices() {
+  if(!US.analysis || !US.vport) return;
+  var changed = false;
+  var priceMap = {};
+  (US.analysis.watchlist||[]).forEach(function(w){ if(w.close) priceMap[w.ticker]=w.close; });
+  Object.keys(US.vport).forEach(function(ticker) {
+    if(priceMap[ticker] && US.vport[ticker].last_close !== priceMap[ticker]) {
+      US.vport[ticker].last_close = priceMap[ticker];
+      changed = true;
+    }
+  });
+  if(changed) api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
+}
+
+
+function renderVPort() {
+  var el = document.getElementById('vportSection'); if(!el) return;
+  var port = S.vport;
+  var vacct = S.vaccount || {initial_cash:100000};
+  var initCash = parseFloat(vacct.initial_cash)||100000;
+
+  // Price map: last_close (saved) → priceCache (fetched) → live analysis (most fresh)
+  var priceMap = {};
+  // 1. Use saved last_close from JSON as baseline
+  Object.keys(S.vport).forEach(function(c){ if(S.vport[c].last_close) priceMap[c]=S.vport[c].last_close; });
+  // 2. Override with independently fetched prices
+  Object.keys(S.priceCache).forEach(function(c){ if(S.priceCache[c].close) priceMap[c]=S.priceCache[c].close; });
+  // 3. Override with live analysis prices (most fresh)
+  if(S.analysis) {
+    (S.analysis.watchlist||[]).forEach(function(w){ if(w.close) priceMap[w.code]=w.close; });
+  }
+  // Calc totals
+  var totalCost = 0, totalVal = 0, hasVal = false;
+  Object.entries(port).forEach(function(kv) {
+    var code=kv[0], pos=kv[1];
+    var cur = priceMap[code] || null;
+    var avg = parseFloat(pos.avg_price)||0;
+    var qty = parseInt(pos.quantity)||0;
+    totalCost += avg*qty;
+    if(cur) { totalVal += cur*qty; hasVal = true; }
+  });
+  var cash = initCash - totalCost;
+  var totalAssets = hasVal ? cash + totalVal : null;
+  var totalPnl = totalAssets !== null ? totalAssets - initCash : null;
+  var pnlPct = (totalPnl !== null && initCash) ? (totalPnl/initCash*100).toFixed(2) : null;
+  var pnlCls = (totalPnl||0) >= 0 ? 'up' : 'dn';
+  var pnlSign = (totalPnl !== null && totalPnl >= 0) ? '+' : '-';
+
+  var h = '<div style="background:var(--c2);border-radius:10px;padding:8px 16px;margin-bottom:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:center">'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">初始资金</div><div style="position:relative;display:inline-block"><div style="font-size:14px;font-weight:700">¥'+initCash.toLocaleString()+'</div><button class="btn btn-g btn-sm" style="font-size:9px;position:absolute;top:50%;right:-46px;transform:translateY(-50%)" onclick="openSetInitCash()">修改</button></div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">账户资产</div><div style="font-size:14px;font-weight:700">'+(totalAssets!==null?'¥'+totalAssets.toFixed(0):'--')+'</div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">可用现金</div><div style="font-size:14px;font-weight:700">¥'+cash.toFixed(0)+'</div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">总收益</div>'
+    + '<div style="font-size:14px;font-weight:700" class="'+pnlCls+'">'+(totalPnl!==null ? pnlSign+'¥'+Math.abs(totalPnl).toFixed(0) : '--')+'</div>'
+    + (pnlPct!==null?'<div style="font-size:11px" class="'+pnlCls+'">'+pnlSign+pnlPct+'%</div>':'')
+    + '</div>'
+    + '</div>';
+
+  if(!Object.keys(port).length) {
+    h += '<p style="color:var(--mu);font-size:12px;margin-bottom:12px">还没有模拟持仓，点「+ 添加」或「⇒ 复制实盘」</p>';
+  } else {
+    h += '<div class="grid4">';
+    Object.keys(port).forEach(function(code) {
+      var pos = port[code];
+      var cur = priceMap[code] || null;
+      var avg = parseFloat(pos.avg_price)||0;
+      var qty = parseInt(pos.quantity)||0;
+      var cost = avg*qty;
+      var val  = cur ? cur*qty : null;
+      var pnlAmt = val ? (val-cost).toFixed(0) : null;
+      var pnlPct2 = (cur&&avg) ? ((cur-avg)/avg*100).toFixed(2) : null;
+      var cls = pnlPct2>0?'up':pnlPct2<0?'dn':'';
+      var sign2 = pnlPct2>0?'+':'';
+      var vdiag = S.vdiagnose && S.vdiagnose[code];
+      h += '<div class="port-card">'
+         +'<div class="pc-hdr"><div><div class="pc-nm">'+(pos.name||code)+'</div><div class="pc-cd">'+code+'</div></div>'
+         +'<div class="pc-pv">'+(cur?'<div class="pc-v '+cls+'">'+cur+'</div><div class="pc-cp '+cls+'">'+sign2+pnlPct2+'%</div>':'<div class="pc-v" style="color:var(--mu)">--</div>')+'</div></div>'
+         +'<div class="pc-flds">'
+         +'<div class="pc-fld"><label>持股数量</label><input type="number" value="'+qty+'" onchange="updVPort(\''+code+'\',\'quantity\',this.value)"></div>'
+         +'<div class="pc-fld"><label>买入均价</label><input type="number" step="0.01" value="'+(avg||'')+'" onchange="updVPort(\''+code+'\',\'avg_price\',this.value)"></div></div>'
+         +'<div class="pc-stats">'
+         +'<div class="pc-stat"><div class="pcs-lbl">成本</div><div class="pcs-val">'+(cost?cost.toFixed(0):'--')+'</div></div>'
+         +'<div class="pc-stat"><div class="pcs-lbl">现值</div><div class="pcs-val">'+(val?val.toFixed(0):'--')+'</div></div>'
+         +'<div class="pc-stat"><div class="pcs-lbl">盈亏</div><div class="pcs-val '+cls+'">'+(pnlAmt!==null?sign2+pnlAmt:'--')+'</div></div></div>'
+         +(vdiag?'<div class="pc-diag"><span class="diag-suggest">'+(vdiag.suggestion||'')+'</span>'+(vdiag.score?'<span style="font-size:10px;color:var(--mu);margin-left:6px">'+vdiag.score+'</span>':'')+'<br>'+(vdiag.analysis||'')+(vdiag.action?'<br><b style="color:var(--ac)">操作：</b>'+vdiag.action:'')+(vdiag.exit_signal?'<br><b style="color:var(--dn)">离场信号：</b>'+vdiag.exit_signal:'')+'</div>':'')
+         +'<div style="text-align:right;margin-top:6px"><button class="btn btn-g btn-sm" style="font-size:10px" onclick="delVPort(\''+code+'\')">移除</button></div>'
+         +'</div>';
+    });
+    h += '</div>';
+  }
+  el.innerHTML = h;
+}
+
+
+function openAddVPort() {
+  ['pCode','pName','pQty','pAvg'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('portModalTitle').textContent = '+ 添加模拟持仓（A股）';
+  document.getElementById('portCodeLabel').textContent = '股票代码（6位数字）';
+  document.getElementById('portPriceLabel').textContent = '买入均价（元）';
+  document.getElementById('pCode').placeholder = '如 002236';
+  document.getElementById('pName').placeholder = '如 大华技术';
+  document.getElementById('portSaveBtn').onclick = saveVPortEntry;
+  document.getElementById('portModal').classList.add('show');
+}
+
+async function saveVPortEntry() {
+  var code = document.getElementById('pCode').value.trim();
+  var name = document.getElementById('pName').value.trim();
+  var qty  = parseFloat(document.getElementById('pQty').value)||0;
+  var avg  = parseFloat(document.getElementById('pAvg').value)||0;
+  if(!code){alert('请输入代码');return;}
+  if(S.vport[code]) {
+    var old = S.vport[code];
+    var oldQty = parseFloat(old.quantity)||0, oldAvg = parseFloat(old.avg_price)||0;
+    var newQty = oldQty + qty;
+    var newAvg = newQty > 0 ? (oldQty*oldAvg + qty*avg)/newQty : avg;
+    S.vport[code] = {name:name||old.name||code, quantity:newQty, avg_price:Math.round(newAvg*1000)/1000};
+  } else {
+    S.vport[code] = {name:name||code, quantity:qty, avg_price:avg};
+  }
+  await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
+  closeModal('portModal'); renderVPort();
+}
+
+async function updVPort(code,field,val) {
+  if(!S.vport[code]) return;
+  S.vport[code][field] = parseFloat(val)||0;
+  await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
+  renderVPort();
+}
+
+async function delVPort(code) {
+  delete S.vport[code];
+  await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
+  renderVPort();
+}
+
+async function copyPortToVirt() {
+  if(!confirm('将实盘持仓复制到模拟账户？（会覆盖现有模拟持仓）')) return;
+  S.vport = JSON.parse(JSON.stringify(S.port));
+  await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
+  renderVPort();
+}
+
+
+async function runVDiagnose() {
+  var codes = Object.keys(S.vport);
+  if(!codes.length) { alert('还没有模拟持仓，请先添加'); return; }
+  var btn = document.getElementById('vDiagnoseBtn');
+  if(btn) { btn.disabled=true; btn.textContent='🔬 诊股中…'; }
+  try {
+    var resp = await api('/api/diagnose', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({portfolio: S.vport, virtual: true})
+    });
+    if(resp.error) { alert('诊股失败：'+resp.error); return; }
+    S.vdiagnose = resp.results || {};
+    renderVPort();
+  } catch(e) {
+    alert('诊股出错：'+e.message);
+  } finally {
+    if(btn) { btn.disabled=false; btn.textContent='🔬 AI诊股'; }
+  }
+}
+
+function openSetInitCash() {
+  var cur = (S.vaccount && S.vaccount.initial_cash) || 100000;
+  var v = prompt('设置初始资金（元）：', cur);
+  if(v === null) return;
+  var n = parseFloat(v);
+  if(isNaN(n) || n <= 0) { alert('请输入有效金额'); return; }
+  S.vaccount.initial_cash = n;
+  api('/api/virtual/account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vaccount)});
+  renderVPort();
+}
+
 function openAddPort() {
   ['pCode','pName','pQty','pAvg'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('portModalTitle').textContent = '+ 添加持仓（A股）';
@@ -2378,7 +2734,17 @@ async function savePortEntry() {
   var qty  = parseFloat(document.getElementById('pQty').value)||0;
   var avg  = parseFloat(document.getElementById('pAvg').value)||0;
   if(!code){alert('请输入代码/Ticker');return;}
-  S.port[code]={name:name||code,quantity:qty,avg_price:avg};
+  if(S.port[code]) {
+    // 已有持仓 → 加仓均摊
+    var old = S.port[code];
+    var oldQty = parseFloat(old.quantity)||0;
+    var oldAvg = parseFloat(old.avg_price)||0;
+    var newQty = oldQty + qty;
+    var newAvg = newQty > 0 ? (oldQty*oldAvg + qty*avg) / newQty : avg;
+    S.port[code] = {name: name||old.name||code, quantity: newQty, avg_price: Math.round(newAvg*1000)/1000};
+  } else {
+    S.port[code] = {name:name||code, quantity:qty, avg_price:avg};
+  }
   await api('/api/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.port)});
   closeModal('portModal'); renderPort();
 }
@@ -2467,7 +2833,9 @@ function startPolling() {
         console.log('[轮询] 完成，渲染数据');
         data._fresh = true;
         renderAnalysis(data); resetBtn();
-        if(Object.keys(S.port).length>0) setTimeout(runDiagnose, 500);
+        renderVPort();
+        if(Object.keys(S.port).length>0)  setTimeout(runDiagnose,  500);
+        if(Object.keys(S.vport).length>0) setTimeout(runVDiagnose, 800);
       } else if(data.status==='error'){
         clearInterval(S.polling); S.polling=null;
         console.error('[轮询] 分析失败:', data.message);
@@ -2546,18 +2914,18 @@ function renderAnalysis(data) {
      + (ai.risk_warning?'<div class="risk-box">⚠ '+ai.risk_warning+'</div>':'')
      + '</div>';
 
-  // 持仓
-  h += '<div class="sec-lbl">我的持仓 <button class="btn btn-g btn-sm" style="font-size:11px" onclick="openAddPort()">+ 添加</button> <button class="btn-diagnose" id="diagnoseBtn" onclick="runDiagnose()">🔬 AI诊股</button></div>'
-     + '<div id="portSection"></div>';
+  // 持仓由永久DOM处理
 
+  // ── 以下写入 mc-wl（自选股+推荐），h继续用于AI摘要 ──
+  var h2 = '';
   // 自选股
-  h += '<div class="sec-lbl" style="margin-top:4px">自选股分析</div><div class="grid3">';
+  h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">自选股分析</div><div class="grid3">';
   (data.watchlist||[]).forEach(function(s) {
     if(s.sparks) S.sparks[s.code] = s.sparks;
     var ana = (ai.watchlist_analysis||[]).find(function(a){return a.code===s.code;})||{};
-    h += buildCard(s, ana);
+    h2 += buildCard(s, ana);
   });
-  h += '</div>';
+  h2 += '</div></div>';
 
   // AI推荐 - 分短线/中长线
   var recos = ai.recommendations || [];
@@ -2586,21 +2954,21 @@ function renderAnalysis(data) {
   }
 
   if(shortTerm.length) {
-    h += '<div class="sec-lbl" style="margin-top:4px">'
+    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
        + '<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线推荐</span>'
        + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">1~2周内题材/资金驱动，严守止损</span></div>'
        + '<div class="grid3">';
-    shortTerm.forEach(function(r){ h += buildReco(r); });
-    h += '</div>';
+    shortTerm.forEach(function(r){ h2 += buildReco(r); });
+    h2 += '</div></div>';
   }
 
   if(longTerm.length) {
-    h += '<div class="sec-lbl" style="margin-top:8px">'
+    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
        + '<span style="background:rgba(167,139,250,.12);color:var(--pu);border:1px solid rgba(167,139,250,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线推荐</span>'
        + '<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">政策+基本面共振，可承受回调</span></div>'
        + '<div class="grid3">';
-    longTerm.forEach(function(r){ h += buildReco(r); });
-    h += '</div>';
+    longTerm.forEach(function(r){ h2 += buildReco(r); });
+    h2 += '</div></div>';
   }
 
   // 新闻 — 单独渲染到 #newsEl（政策面板下方）
@@ -2615,8 +2983,11 @@ function renderAnalysis(data) {
   newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
 
   document.getElementById('mc').innerHTML = h;
+  var mcWl = document.getElementById('mc-wl'); if(mcWl) mcWl.innerHTML = h2;
   document.getElementById('newsEl').innerHTML = newsH;
   renderPort();
+  _persistVPortPrices();
+  renderVPort();
 
   // 画图表
   (data.watchlist||[]).forEach(function(s) {
@@ -2826,8 +3197,18 @@ async function usInit() {
     US.wl = Array.isArray(cfg.watchlist) ? cfg.watchlist : [];
     var port = await api('/api/us/portfolio');
     US.port = (port && typeof port === 'object') ? port : {};
+    try {
+      var uvp = await api('/api/us/virtual/portfolio');
+      US.vport = (uvp && typeof uvp === 'object') ? uvp : {};
+    } catch(e2) { US.vport = {}; }
+    try {
+      var uva = await api('/api/us/virtual/account');
+      US.vaccount = (uva && typeof uva === 'object') ? uva : {initial_cash:100000};
+    } catch(e3) { US.vaccount = {initial_cash:100000}; }
     usRenderWL();
     usRenderPort();
+    usRenderVPort();
+    usRefreshPortPrices();
     if(!cfg.has_openai_key) {
       usSetBanner('⚠️', '<b style="color:var(--dn)">请在「设置」中填写 OpenAI API Key（美股分析用 GPT-4o-mini）</b>');
       return;
@@ -2841,6 +3222,11 @@ async function usInit() {
         US.diagnose = data.diagnose;
         usRenderPort();
       }
+      try {
+        var uvdiag = await api('/api/us/virtual/diagnose');
+        if(uvdiag && Object.keys(uvdiag).length > 0) { US.vdiagnose = uvdiag; }
+      } catch(e2) {}
+      usRenderVPort();
     } else if(data && data.status === 'running') {
       usStartPolling(); usSetBanner('⏳','<b>分析进行中…</b>');
     } else {
@@ -2883,7 +3269,9 @@ function usStartPolling() {
         btn.disabled = false; btn.textContent = '▶ 分析美股';
         var usts2 = data.updated_at||'';
         usSetBanner('✅', '<b style="color:var(--up)">行情更新</b>　<span style="font-size:11px;color:var(--mu)">自选分析</span>　<span style="font-family:monospace;color:var(--ac)">'+usts2+'</span>');
+        usRenderVPort();
         setTimeout(usRunDiagnose, 500);
+        if(Object.keys(US.vport).length>0) setTimeout(usRunVDiagnose, 800);
       } else if(data.status === 'error') {
         clearInterval(US.polling);
         usSetBanner('❌', '分析出错：' + (data.message||''));
@@ -2968,23 +3356,21 @@ function usRenderAnalysis(data) {
     +(ai.risk_warning?'<div class="risk-box">⚠ '+ai.risk_warning+'</div>':'')
     +'</div>';
 
-  // 3. 持仓（对应A股位置）
-  h += '<div class="sec-lbl">我的持仓 '
-    +'<button class="btn btn-g btn-sm" style="font-size:11px" onclick="usOpenAddPort()">+ 添加</button> '
-    +'<button class="btn-diagnose" id="usDiagnoseBtn" onclick="usRunDiagnose()">🔬 AI诊股</button></div>'
-    +'<div class="grid4" id="usPortCards"></div>';
+  // 持仓由永久DOM处理
 
+  // ── 以下写入 usMc-wl ──
+  var h2 = '';
   // 4. 自选股分析
   var wla = ai.watchlist_analysis || [];
   var wlStocks = data.watchlist || [];
   if(wlStocks.length) {
-    h += '<div class="sec-lbl" style="margin-top:4px">自选股分析</div><div class="grid3">';
+    h2 += '<div class="sec-lbl" style="margin-top:4px">自选股分析</div><div class="grid3">';
     wlStocks.forEach(function(s) {
       var ana = wla.find(function(a){ return (a.ticker||'').toUpperCase()===(s.ticker||'').toUpperCase(); }) || {};
-      h += usBuildCard(s, ana);
+      h2 += usBuildCard(s, ana);
       US.sparks[s.ticker] = s.sparks;
     });
-    h += '</div>';
+    h2 += '</div>';
     setTimeout(function(){
       wlStocks.forEach(function(s){
         if(s.sparks) drawSpark('uscv_'+s.ticker, s.sparks['365d']||s.sparks['30d']||[], (s.change_pct||0)>=0);
@@ -2999,6 +3385,7 @@ function usRenderAnalysis(data) {
     if(hsEl) hsEl.innerHTML = hs.map(function(s){
       return '<a href="https://finance.yahoo.com/quote/'+s.etf+'" target="_blank" class="sector-tag" style="border-color:rgba(59,130,246,.3);color:#3b82f6">'+s.name+'<span style="opacity:.6;margin-left:3px">'+s.etf+'</span></a>';
     }).join('');
+    h2 += '</div>'; // close divider
   }
 
   // 6. AI荐股
@@ -3008,29 +3395,32 @@ function usRenderAnalysis(data) {
   if(!shortTerm.length && !longTerm.length && recos.length) longTerm = recos;
 
   if(!recos.length) {
-    h += '<div style="color:var(--mu);font-size:13px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-bottom:16px">'
+    h2 += '<div style="color:var(--mu);font-size:13px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-bottom:16px">'
       +'本次分析暂无推荐（候选池为空或所有候选标的风险过高）<br>'
       +'<span style="font-size:11px">点击「分析美股」重新分析可获取最新推荐</span></div>';
   }
   if(shortTerm.length) {
-    h += '<div class="sec-lbl" style="margin-top:4px">'
+    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
       +'<span style="background:rgba(245,200,66,.15);color:var(--gd);border:1px solid rgba(245,200,66,.3);padding:2px 10px;border-radius:4px;font-size:12px">⚡ 短线动能</span>'
       +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">板块ETF强势+量价配合，注明离场信号</span></div>'
       +'<div class="grid3">';
-    shortTerm.forEach(function(r){ h += usBuildReco(r); });
-    h += '</div>';
+    shortTerm.forEach(function(r){ h2 += usBuildReco(r); });
+    h2 += '</div></div>';
   }
   if(longTerm.length) {
-    h += '<div class="sec-lbl" style="margin-top:8px">'
+    h2 += '<div style="border-top:1px solid var(--bd);margin-top:24px;padding-top:20px">'+'<div class="sec-lbl">'
       +'<span style="background:rgba(59,130,246,.12);color:#3b82f6;border:1px solid rgba(59,130,246,.3);padding:2px 10px;border-radius:4px;font-size:12px">📈 中长线主线</span>'
       +'<span style="margin-left:8px;font-weight:400;color:var(--mu);font-size:11px">AI/医疗/能源核心主线，ETF资金+业绩催化共振</span></div>'
       +'<div class="grid3">';
-    longTerm.forEach(function(r){ h += usBuildReco(r); });
-    h += '</div>';
+    longTerm.forEach(function(r){ h2 += usBuildReco(r); });
+    h2 += '</div></div>';
   }
 
   document.getElementById('usMc').innerHTML = h;
+  var usMcWl = document.getElementById('usMc-wl'); if(usMcWl) usMcWl.innerHTML = h2;
   usRenderPort();
+  _persistUsVPortPrices();
+  usRenderVPort();
   usRenderWL();
 
   // 7. 新闻 — 单独写入 #usNewsEl（#usMc 外面，排在推荐后面）
@@ -3062,7 +3452,7 @@ function usBuildCard(s, ana) {
   ['5d','30d','90d','180d','365d','5y'].forEach(function(p,i){
     tabH += '<button class="pbtn'+(i===4?' active':'')+'" onclick="usSwPeriod(\''+sid+'\',\''+s.ticker+'\',\''+p+'\',this)">'+p+'</button>';
   });
-  var heatCol = (ana.sector_etf||'').indexOf('-')>0&&(ana.sector_etf||'').split('%')[0].includes('-') ? 'var(--dn)' : 'var(--up)';
+  var heatCol = /\s-\d/.test(ana.sector_etf||'') ? 'var(--dn)' : 'var(--up)';
   var volCol  = (ana.volume_signal||'').indexOf('出货')>-1||(ana.volume_signal||'').indexOf('放量下跌')>-1 ? 'var(--dn)' : (ana.volume_signal||'').indexOf('放量突破')>-1 ? 'var(--up)' : 'var(--mu)';
   var anaH = '';
   var hasAna = ana && (ana.suggestion || ana.reason || ana.earnings_alert || ana.sector_etf || ana.relative_strength);
@@ -3150,10 +3540,30 @@ function usRenderPort() {
   }
   var latest = US.analysis;
   var wl = (latest&&latest.watchlist)||[];
-  el.innerHTML = Object.entries(port).map(function(kv){
+  // ── 汇总计算 ──
+  var totalCost=0,totalVal=0,hasVal=false;
+  Object.entries(port).forEach(function(kv2){
+    var t2=kv2[0],p2=kv2[1];
+    var lv2=wl.find(function(s){return s.ticker===t2;});
+    var c2=(lv2&&lv2.close)?lv2.close:(US.priceCache[t2]?US.priceCache[t2].close:null);
+    totalCost+=(parseFloat(p2.avg_price||0))*(parseInt(p2.quantity||0));
+    if(c2){totalVal+=c2*(parseInt(p2.quantity||0));hasVal=true;}
+  });
+  var totalPnl=hasVal?totalVal-totalCost:null;
+  var totalPnlPct=(totalPnl!==null&&totalCost)?(totalPnl/totalCost*100).toFixed(2):null;
+  var sumCls=(totalPnl||0)>=0?'up':'dn';
+  var sumSign=(totalPnl!==null&&totalPnl>=0)?'+':'-';
+  var summary='<div style="background:var(--c2);border-radius:10px;padding:8px 16px;margin-bottom:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:center">'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">投入资金</div><div style="font-size:14px;font-weight:700">$'+(totalCost?totalCost.toFixed(0):'--')+'</div></div>'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">账户资产</div><div style="font-size:14px;font-weight:700">'+(hasVal?'$'+totalVal.toFixed(0):'--')+'</div></div>'
+    +'<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">总收益</div>'
+    +'<div style="font-size:14px;font-weight:700" class="'+sumCls+'">'+(totalPnl!==null?sumSign+'$'+Math.abs(totalPnl).toFixed(0):'--')+'</div>'
+    +(totalPnlPct!==null?'<div style="font-size:11px" class="'+sumCls+'">'+sumSign+totalPnlPct+'%</div>':'')
+    +'</div></div>';
+  var cards=Object.entries(port).map(function(kv){
     var ticker=kv[0], pos=kv[1];
     var live = wl.find(function(s){return s.ticker===ticker;});
-    var cur = live?live.close:null;
+    var cur = (live&&live.close)?live.close:(US.priceCache[ticker]?US.priceCache[ticker].close:null);
     var avg = parseFloat(pos.avg_price||0);
     var qty = parseInt(pos.quantity||0);
     var cost = avg&&qty ? round2(avg*qty) : null;
@@ -3202,6 +3612,7 @@ function usRenderPort() {
       +'</div>'
       +'</div>';
   }).join('');
+  el.innerHTML = summary + '<div class="grid4">' + cards + '</div>';
 }
 
 async function usUpdPort(ticker, field, val) {
@@ -3228,7 +3639,16 @@ async function usSavePortEntry() {
   var qty    = parseFloat(document.getElementById('pQty').value)||0;
   var avg    = parseFloat(document.getElementById('pAvg').value)||0;
   if(!ticker){alert('请输入 Ticker');return;}
-  US.port[ticker]={name:name||ticker,quantity:qty,avg_price:avg};
+  if(US.port[ticker]) {
+    var old = US.port[ticker];
+    var oldQty = parseFloat(old.quantity)||0;
+    var oldAvg = parseFloat(old.avg_price)||0;
+    var newQty = oldQty + qty;
+    var newAvg = newQty > 0 ? (oldQty*oldAvg + qty*avg) / newQty : avg;
+    US.port[ticker] = {name: name||old.name||ticker, quantity: newQty, avg_price: Math.round(newAvg*1000)/1000};
+  } else {
+    US.port[ticker] = {name:name||ticker, quantity:qty, avg_price:avg};
+  }
   await api('/api/us/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.port)});
   closeModal('portModal'); usRenderPort();
 }
@@ -3238,6 +3658,182 @@ async function usDelPort(ticker) {
   await api('/api/us/portfolio', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(US.port)});
   usRenderPort();
 }
+
+
+function usRenderVPort() {
+  var el = document.getElementById('usVPortSection'); if(!el) return;
+  var port = US.vport;
+  var vacct = US.vaccount || {initial_cash:100000};
+  var initCash = parseFloat(vacct.initial_cash)||100000;
+
+  // US price map: last_close → priceCache → live analysis
+  var usPriceMap = {};
+  Object.keys(US.vport).forEach(function(t){ if(US.vport[t].last_close) usPriceMap[t]=US.vport[t].last_close; });
+  Object.keys(US.priceCache).forEach(function(t){ if(US.priceCache[t].close) usPriceMap[t]=US.priceCache[t].close; });
+  if(US.analysis) {
+    (US.analysis.watchlist||[]).forEach(function(w){ if(w.close) usPriceMap[w.ticker]=w.close; });
+  }
+  var totalCost = 0, totalVal = 0, hasVal = false;
+  Object.entries(port).forEach(function(kv) {
+    var ticker=kv[0], pos=kv[1];
+    var cur = usPriceMap[ticker] || null;
+    var avg = parseFloat(pos.avg_price)||0;
+    var qty = parseInt(pos.quantity)||0;
+    totalCost += avg*qty;
+    if(cur) { totalVal += cur*qty; hasVal = true; }
+  });
+  var cash = initCash - totalCost;
+  var totalAssets = hasVal ? cash + totalVal : null;
+  var totalPnl = totalAssets !== null ? totalAssets - initCash : null;
+  var pnlPct = (totalPnl !== null && initCash) ? (totalPnl/initCash*100).toFixed(2) : null;
+  var pnlCls = (totalPnl||0) >= 0 ? 'up' : 'dn';
+  var pnlSign = (totalPnl !== null && totalPnl >= 0) ? '+' : '-';
+
+  var h = '<div style="background:var(--c2);border-radius:10px;padding:8px 16px;margin-bottom:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:center">'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">初始资金</div><div style="position:relative;display:inline-block"><div style="font-size:14px;font-weight:700">$'+initCash.toLocaleString()+'</div><button class="btn btn-g btn-sm" style="font-size:9px;position:absolute;top:50%;right:-46px;transform:translateY(-50%)" onclick="usOpenSetInitCash()">修改</button></div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">账户资产</div><div style="font-size:14px;font-weight:700">'+(totalAssets!==null?'$'+totalAssets.toFixed(0):'--')+'</div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">可用现金</div><div style="font-size:14px;font-weight:700">$'+cash.toFixed(0)+'</div></div>'
+    + '<div style="text-align:center"><div style="font-size:10px;color:var(--mu)">总收益</div>'
+    + '<div style="font-size:14px;font-weight:700" class="'+pnlCls+'">'+(totalPnl!==null ? pnlSign+'$'+Math.abs(totalPnl).toFixed(0) : '--')+'</div>'
+    + (pnlPct!==null?'<div style="font-size:11px" class="'+pnlCls+'">'+pnlSign+pnlPct+'%</div>':'')
+    + '</div></div>';
+
+  if(!Object.keys(port).length) {
+    h += '<div style="color:var(--mu);font-size:12px;padding:8px">还没有模拟持仓，点「+ 添加」或「⇒ 复制实盘」</div>';
+  } else {
+    h += '<div class="grid4">';
+    h += Object.entries(port).map(function(kv) {
+      var ticker=kv[0], pos=kv[1];
+      var cur = usPriceMap[ticker] || null;
+      var avg = parseFloat(pos.avg_price||0);
+      var qty = parseInt(pos.quantity||0);
+      var cost = avg&&qty ? round2(avg*qty) : null;
+      var val  = cur&&qty ? round2(cur*qty) : null;
+      var pnl  = cur&&avg ? round2((cur-avg)/avg*100) : null;
+      var pnlAmt = val&&cost ? round2(val-cost) : null;
+      var isUp = (pnl||0) >= 0;
+      var cls = isUp ? 'up' : 'dn';
+      var sign2 = isUp ? '+' : '';
+      var vdiag = US.vdiagnose && US.vdiagnose[ticker];
+      return '<div class="port-card">'
+        +'<div class="pc-hdr">'
+          +'<div><div class="pc-nm">'+ticker+'</div><div class="pc-cd">'+pos.name+'</div></div>'
+          +'<div class="pc-pv">'+(cur?'<div class="pc-v '+cls+'">$'+cur+'</div><div class="pc-cp '+cls+'">'+sign2+(pnl||0)+'%</div>':'<div class="pc-v" style="color:var(--mu)">--</div>')+'</div>'
+        +'</div>'
+        +'<div class="pc-flds">'
+          +'<div class="pc-fld"><label>持股数量</label><input type="number" value="'+qty+'" onchange="usUpdVPort(\''+ticker+'\',\'quantity\',this.value)"></div>'
+          +'<div class="pc-fld"><label>买入均价($)</label><input type="number" step="0.01" value="'+(avg||'')+'" onchange="usUpdVPort(\''+ticker+'\',\'avg_price\',this.value)"></div>'
+        +'</div>'
+        +'<div class="pc-stats">'
+          +'<div class="pc-stat"><div class="pcs-lbl">成本</div><div class="pcs-val">'+(cost?'$'+cost:'--')+'</div></div>'
+          +'<div class="pc-stat"><div class="pcs-lbl">现值</div><div class="pcs-val">'+(val?'$'+val:'--')+'</div></div>'
+          +'<div class="pc-stat"><div class="pcs-lbl">盈亏</div><div class="pcs-val '+cls+'">'+(pnlAmt!==null?sign2+'$'+pnlAmt:'--')+'</div></div>'
+        +'</div>'
+        +(vdiag?'<div class="pc-sug">'
+            +(function(){
+              var sug=vdiag.suggestion||'';
+              var sugCls=(sug==='加仓'||sug==='Add')?'up':(sug==='止损'||sug==='Stop-Loss'||sug==='减仓'||sug==='Trim')?'dn':(sug==='止盈'||sug==='Take-Profit')?'up':'';
+              var sugMap={'Hold':'持有','Add':'加仓','Trim':'减仓','Stop-Loss':'止损','Take-Profit':'止盈','Watch':'观察'};
+              return '<b class="'+sugCls+'">'+(sugMap[sug]||sug)+'</b>';
+            })()
+            +(vdiag.analysis?'<br><span style="color:var(--tx)">'+vdiag.analysis+'</span>':'')
+            +(vdiag.earnings_action?'<br>📅 <span style="color:var(--gd)">'+vdiag.earnings_action+'</span>':'')
+            +(vdiag.sector_health?'<br>📊 <span style="color:var(--mu);font-size:11px">'+vdiag.sector_health+'</span>':'')
+            +(vdiag.action?'<br><b style="color:var(--ac)">操作：</b>'+vdiag.action:'')
+            +(vdiag.exit_signal?'<br><b style="color:var(--dn)">离场：</b>'+vdiag.exit_signal:'')
+          +'</div>':'')
+        +'<div style="text-align:right;margin-top:6px">'
+          +'<button class="btn btn-g btn-sm" style="font-size:10px" onclick="usDelVPort(\''+ticker+'\')">移除</button>'
+        +'</div>'
+        +'</div>';
+    }).join('');
+    h += '</div>';
+  }
+  el.innerHTML = h;
+}
+
+function usOpenAddVPort() {
+  ['pCode','pName','pQty','pAvg'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('portModalTitle').textContent = '+ 添加模拟持仓（美股）';
+  document.getElementById('portCodeLabel').textContent = 'Ticker（如 NVDA）';
+  document.getElementById('portPriceLabel').textContent = '买入均价（$）';
+  document.getElementById('pCode').placeholder = '如 NVDA';
+  document.getElementById('pName').placeholder = '如 NVIDIA';
+  document.getElementById('portSaveBtn').onclick = usSaveVPortEntry;
+  document.getElementById('portModal').classList.add('show');
+}
+
+async function usSaveVPortEntry() {
+  var ticker = document.getElementById('pCode').value.trim().toUpperCase();
+  var name   = document.getElementById('pName').value.trim();
+  var qty    = parseFloat(document.getElementById('pQty').value)||0;
+  var avg    = parseFloat(document.getElementById('pAvg').value)||0;
+  if(!ticker){alert('请输入 Ticker');return;}
+  if(US.vport[ticker]) {
+    var old = US.vport[ticker];
+    var oldQty = parseFloat(old.quantity)||0, oldAvg = parseFloat(old.avg_price)||0;
+    var newQty = oldQty + qty;
+    var newAvg = newQty > 0 ? (oldQty*oldAvg + qty*avg)/newQty : avg;
+    US.vport[ticker] = {name:name||old.name||ticker, quantity:newQty, avg_price:Math.round(newAvg*1000)/1000};
+  } else {
+    US.vport[ticker] = {name:name||ticker, quantity:qty, avg_price:avg};
+  }
+  await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
+  closeModal('portModal'); usRenderVPort();
+}
+
+async function usUpdVPort(ticker,field,val) {
+  if(!US.vport[ticker]) return;
+  US.vport[ticker][field] = parseFloat(val)||0;
+  await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
+  usRenderVPort();
+}
+
+async function usDelVPort(ticker) {
+  delete US.vport[ticker];
+  await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
+  usRenderVPort();
+}
+
+async function usCopyPortToVirt() {
+  if(!confirm('将实盘持仓复制到模拟账户？（会覆盖现有模拟持仓）')) return;
+  US.vport = JSON.parse(JSON.stringify(US.port));
+  await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
+  usRenderVPort();
+}
+
+
+async function usRunVDiagnose() {
+  var tickers = Object.keys(US.vport);
+  if(!tickers.length) { alert('还没有模拟持仓，请先添加'); return; }
+  var btn = document.getElementById('usVDiagnoseBtn');
+  if(btn) { btn.disabled=true; btn.textContent='🔬 诊股中…'; }
+  try {
+    var resp = await api('/api/us/diagnose', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({portfolio: US.vport, virtual: true})
+    });
+    if(resp.error) { alert('诊股失败：'+resp.error); return; }
+    US.vdiagnose = resp.results || {};
+    usRenderVPort();
+  } catch(e) {
+    alert('诊股出错：'+e.message);
+  } finally {
+    if(btn) { btn.disabled=false; btn.textContent='🔬 AI诊股'; }
+  }
+}
+
+function usOpenSetInitCash() {
+  var cur = (US.vaccount && US.vaccount.initial_cash) || 100000;
+  var v = prompt('设置初始资金（$）：', cur);
+  if(v === null) return;
+  var n = parseFloat(v);
+  if(isNaN(n) || n <= 0) { alert('请输入有效金额'); return; }
+  US.vaccount.initial_cash = n;
+  api('/api/us/virtual/account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vaccount)});
+  usRenderVPort();
+}
+
 
 async function usRunDiagnose() {
   if(!Object.keys(US.port).length) return;
@@ -3280,7 +3876,7 @@ async function runPolicyAnalysis() {
   }
   document.getElementById('policyContent').innerHTML =
     '<div style="color:var(--mu);font-size:13px;padding:30px 0;text-align:center">' +
-    '⏳ 正在抓取六大政策板块数据 + yfinance 90日走势…<br>' +
+    '⏳ 正在抓取七大政策板块数据 + yfinance 90日走势…<br>' +
     '<span style="font-size:11px;opacity:.7">约需60-90秒</span></div>';
   try {
     await api('/api/policy/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
@@ -3340,7 +3936,7 @@ function renderPolicyAnalysis(data) {
       + '🌐 ' + ai.macro_view + '</div>';
   }
 
-  // 六大板块状态格子
+  // 七大板块状态格子
   h += '<div class="sector-grid">';
   aiSectors.forEach(function(sec) {
     var raw = sectors.find(function(s){ return s.name === sec.name; }) || {};
@@ -3385,12 +3981,57 @@ init();
 usInit();
 </script>
 <div style="text-align:center;padding:40px 20px 32px;border-top:1px solid var(--bd);margin-top:40px">
-  <div style="font-size:13px;color:var(--mu);margin-bottom:14px">如果这个工具帮助了你，欢迎打赏支持 🙏</div>
-  <img src="/figure/wexin_payment_QR.jpg" alt="微信打赏" style="width:160px;height:160px;border-radius:10px;border:1px solid var(--bd)">
-  <div style="font-size:11px;color:var(--mu);margin-top:10px">微信扫码打赏</div>
+  <div style="font-size:13px;color:var(--mu);margin-bottom:20px">如果这个工具帮助了你，欢迎打赏支持 🙏 &nbsp;&nbsp;|&nbsp;&nbsp; 欢迎大家加入微信群交流 💬</div>
+  <div style="display:inline-flex;gap:40px;align-items:flex-start">
+    <div style="text-align:center">
+      <img src="/figure/wexin_payment_QR.jpg" alt="微信打赏" style="width:150px;height:150px;border-radius:10px;border:1px solid var(--bd)">
+      <div style="font-size:11px;color:var(--mu);margin-top:8px">微信扫码打赏</div>
+    </div>
+    <div style="text-align:center">
+      <img src="/figure/weixin_group_QR.jpg" alt="微信群" style="width:150px;height:150px;border-radius:10px;border:1px solid var(--bd)">
+      <div style="font-size:11px;color:var(--mu);margin-top:8px">微信群</div>
+    </div>
+  </div>
 </div>
 </body>
 </html>"""
+
+@app.route("/api/prices", methods=["POST"])
+def get_prices():
+    """Fetch current prices for a list of CN stock codes."""
+    codes = request.json.get("codes", [])
+    result = {}
+    for item in codes:
+        code = item if isinstance(item, str) else item.get("code", "")
+        name = "" if isinstance(item, str) else item.get("name", "")
+        if not code:
+            continue
+        try:
+            d = fetch_stock(code, name)
+            if d and not d.get("error"):
+                result[code] = {"close": d.get("close"), "change_pct": d.get("change_pct"), "name": d.get("name", name)}
+        except Exception:
+            pass
+    return jsonify(result)
+
+@app.route("/api/us/prices", methods=["POST"])
+def get_us_prices():
+    """Fetch current prices for a list of US tickers."""
+    tickers = request.json.get("tickers", [])
+    result = {}
+    for item in tickers:
+        ticker = item if isinstance(item, str) else item.get("ticker", "")
+        name   = "" if isinstance(item, str) else item.get("name", "")
+        if not ticker:
+            continue
+        try:
+            d = fetch_us_stock(ticker, name)
+            if d and not d.get("error"):
+                result[ticker] = {"close": d.get("close"), "change_pct": d.get("change_pct"), "name": d.get("name", name)}
+        except Exception:
+            pass
+    return jsonify(result)
+
 
 if __name__ == "__main__":
     print("=" * 50)
