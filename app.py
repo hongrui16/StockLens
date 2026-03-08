@@ -2834,7 +2834,8 @@ async function usInit() {
     var data = await api('/api/us/analysis');
     if(data && data.status === 'done') {
       usRenderAnalysis(data);
-      usSetBanner('✅', '<b>美股分析完成</b> · ' + (data.updated_at||''));
+      var usts = data.updated_at||'';
+      usSetBanner('🕐', '<b style="color:var(--mu)">历史数据</b>　<span style="font-size:11px;color:var(--mu)">自选分析</span>　<span style="font-family:monospace;color:var(--ac)">'+usts+'</span>');
       if(data.diagnose && Object.keys(data.diagnose).length > 0) {
         US.diagnose = data.diagnose;
         usRenderPort();
@@ -2879,7 +2880,8 @@ function usStartPolling() {
         usRenderAnalysis(data);
         var btn = document.getElementById('reAnalyzeBtn');
         btn.disabled = false; btn.textContent = '▶ 分析美股';
-        usSetBanner('✅', '<b>美股分析完成</b> · ' + (data.updated_at||''));
+        var usts2 = data.updated_at||'';
+        usSetBanner('✅', '<b style="color:var(--up)">行情更新</b>　<span style="font-size:11px;color:var(--mu)">自选分析</span>　<span style="font-family:monospace;color:var(--ac)">'+usts2+'</span>');
         setTimeout(usRunDiagnose, 500);
       } else if(data.status === 'error') {
         clearInterval(US.polling);
