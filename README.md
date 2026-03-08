@@ -26,7 +26,9 @@ python app.py
 
 浏览器打开 [http://localhost:5000](http://localhost:5000)，在右上角「⚙ 设置」中填入 API Key，即可开始分析。
 
-### 3. API Key 获取
+### 3. 填入 API Key
+
+浏览器打开 [http://localhost:5000](http://localhost:5000)，点右上角「⚙ 设置」填入 API Key 即可，程序会自动保存，无需手动创建文件。
 
 | Key | 用途 | 获取地址 |
 |---|---|---|
@@ -95,7 +97,7 @@ stock_agent/
 | 止损第一优先 | 放量下跌 / 板块退潮 | 财报 EPS 低于预期 |
 | 推荐候选池来源 | 东方财富主力净流入 Top30 | Yahoo 涨幅榜 + 成交量榜 Top40 |
 | AI 模型 | DeepSeek `deepseek-chat` | GPT-4o-mini |
-| 单次分析费用 | ~$0.05~0.10 | ~$0.01~0.03 |
+| 单次分析费用 | ~ $0.001~0.003 | ~ $0.01~0.03 |
 
 ---
 

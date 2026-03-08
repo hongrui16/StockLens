@@ -6,6 +6,7 @@ __pycache__/
 deepseek_key*
 openai_key*
 
+data/
 
 # C extensions
 *.so
