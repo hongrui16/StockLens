@@ -4720,6 +4720,9 @@ usInit();
       <div style="font-size:11px;color:var(--mu);margin-top:8px">微信群</div>
     </div>
   </div>
+  <div style="margin-top:20px;font-size:12px;color:var(--mu)">
+    📬 联系作者：<a href="mailto:smarthong@qq.com" style="color:var(--ac);text-decoration:none">smarthong@qq.com</a>
+  </div>
 </div>
 </body>
 </html>"""
