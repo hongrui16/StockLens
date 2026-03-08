@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+deepseek_key*
+openai_key*
+
+
 # C extensions
 *.so
 
