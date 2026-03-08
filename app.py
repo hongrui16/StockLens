@@ -101,6 +101,11 @@ DEFAULT_WATCHLIST = [
 app = Flask(__name__)
 _running = False
 
+@app.route('/figure/<path:filename>')
+def static_files(filename):
+    from flask import send_from_directory
+    return send_from_directory(Path(__file__).parent / 'figure', filename)
+
 # ── 美股常量 ──
 DEFAULT_US_WATCHLIST = [
     {"ticker": "NVDA",  "name": "NVIDIA"},
@@ -1993,10 +1998,6 @@ main{padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 54px)}
       <span class="ext-link-icon">🐦</span>
       <div class="ext-link-info"><span class="ext-link-name">雪球</span><span class="ext-link-desc">社区讨论 / 组合 / 深度分析</span></div>
     </a>
-    <a class="ext-link" href="https://www.ithome.com/tag/aigc/" target="_blank">
-      <span class="ext-link-icon">🤖</span>
-      <div class="ext-link-info"><span class="ext-link-name">IT之家 AI</span><span class="ext-link-desc">AI / 科技行业最新动态</span></div>
-    </a>
     <a class="ext-link" href="https://www.cls.cn" target="_blank">
       <span class="ext-link-icon">⚡</span>
       <div class="ext-link-info"><span class="ext-link-name">财联社</span><span class="ext-link-desc">实时快讯 / 电报</span></div>
@@ -3383,6 +3384,11 @@ function renderPolicyAnalysis(data) {
 init();
 usInit();
 </script>
+<div style="text-align:center;padding:40px 20px 32px;border-top:1px solid var(--bd);margin-top:40px">
+  <div style="font-size:13px;color:var(--mu);margin-bottom:14px">如果这个工具帮助了你，欢迎打赏支持 🙏</div>
+  <img src="/figure/wexin_payment_QR.jpg" alt="微信打赏" style="width:160px;height:160px;border-radius:10px;border:1px solid var(--bd)">
+  <div style="font-size:11px;color:var(--mu);margin-top:10px">微信扫码打赏</div>
+</div>
 </body>
 </html>"""
 
