@@ -1962,6 +1962,52 @@ def policy_reset():
     if POLICY_STATUS_FILE.exists(): POLICY_STATUS_FILE.unlink()
     return jsonify({"ok": True})
 
+# ── 新闻刷新路由 ──
+@app.route("/api/news/refresh", methods=["POST"])
+def cn_news_refresh():
+    """单独刷新A股财经新闻，不重跑AI"""
+    try:
+        news = fetch_news()
+        ts   = datetime.now().strftime("%Y-%m-%d %H:%M")
+        # 顺手更新最新archive里的news字段
+        files = sorted(CN_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+        for f in files:
+            d = jload(f)
+            if d and d.get("status") == "done":
+                d["news"] = news
+                tmp = f.with_name(".tmp_" + f.name)
+                try:
+                    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                    tmp.rename(f)
+                except Exception:
+                    if tmp.exists(): tmp.unlink()
+                break
+        return jsonify({"news": news, "updated_at": ts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/us/news/refresh", methods=["POST"])
+def us_news_refresh():
+    """单独刷新美股财经新闻，不重跑AI"""
+    try:
+        news = fetch_us_news()
+        ts   = datetime.now().strftime("%Y-%m-%d %H:%M")
+        files = sorted(US_ARCHIVE_DIR.glob("analysis_*.json"), reverse=True)
+        for f in files:
+            d = jload(f)
+            if d and d.get("status") == "done":
+                d["news"] = news
+                tmp = f.with_name(".tmp_" + f.name)
+                try:
+                    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                    tmp.rename(f)
+                except Exception:
+                    if tmp.exists(): tmp.unlink()
+                break
+        return jsonify({"news": news, "updated_at": ts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ── 美股路由 ──
 @app.route("/api/us/config", methods=["GET"])
 def us_get_config():
@@ -3182,7 +3228,6 @@ async function saveVPortEntry() {
   }
   await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
   closeModal('portModal'); renderVPort();
-  refreshPortPrices();
 }
 
 async function updVPort(code,field,val) {
@@ -3268,7 +3313,6 @@ async function savePortEntry() {
   }
   await api('/api/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.port)});
   closeModal('portModal'); renderPort();
-  refreshPortPrices();
 }
 
 // ── AI诊股 ──
@@ -3448,19 +3492,10 @@ function renderAnalysis(data) {
 
 
   // 新闻 — 单独渲染到 #newsEl（政策面板下方）
-  var newsH = '<div class="card"><div class="sec-lbl" style="margin-bottom:10px">今日财经要闻</div>';
-  (data.news||[]).forEach(function(n) {
-    var title = typeof n==='string'?n:(n.title||'');
-    var url   = typeof n==='string'?'':(n.url||'');
-    newsH += '<div class="news-item"><span class="ndot">▸</span>'
-       +(url?'<a href="'+url+'" target="_blank">'+title+'</a>':'<span style="color:var(--mu)">'+title+'</span>')
-       +'</div>';
-  });
-  newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
+  renderNews(data.news||[], data.updated_at||'');
 
   document.getElementById('mc').innerHTML = h;
   // mc-wl 由 renderWatchlist 单独写入
-  document.getElementById('newsEl').innerHTML = newsH;
   renderPort();
   _persistVPortPrices();
   renderVPort();
@@ -4028,18 +4063,79 @@ function usRenderAnalysis(data) {
   if(usWlTs && data.watchlist_updated_at) usWlTs.textContent = '更新于 ' + data.watchlist_updated_at;
 
   // 7. 新闻 — 单独写入 #usNewsEl（#usMc 外面，排在推荐后面）
-  var newsH = '<div class="card" style="margin-top:16px"><div class="sec-lbl" style="margin-bottom:10px">今日美股要闻</div>';
-  (data.news||[]).forEach(function(n){
+  usRenderNews(data.news||[], data.updated_at||'');
+}
+
+
+// ── A股 新闻渲染 + 刷新 ──
+function renderNews(news, ts) {
+  var el = document.getElementById('newsEl'); if(!el) return;
+  var newsH = '<div class="card">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    + '<div class="sec-lbl" style="margin:0">今日财经要闻</div>'
+    + '<button id="newsRefreshBtn" class="btn btn-g btn-sm" style="font-size:11px" onclick="refreshNews()">↻ 刷新</button>'
+    + (ts ? '<span id="newsTsEl" style="font-size:11px;color:var(--mu)">'+ts+'</span>' : '<span id="newsTsEl"></span>')
+    + '</div>';
+  (news||[]).forEach(function(n) {
+    var title = typeof n==='string' ? n : (n.title||'');
+    var url   = typeof n==='string' ? '' : (n.url||'');
+    newsH += '<div class="news-item"><span class="ndot">▸</span>'
+      + (url ? '<a href="'+url+'" target="_blank">'+title+'</a>' : '<span style="color:var(--mu)">'+title+'</span>')
+      + '</div>';
+  });
+  newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
+  el.innerHTML = newsH;
+}
+
+async function refreshNews() {
+  var btn = document.getElementById('newsRefreshBtn');
+  var tsEl = document.getElementById('newsTsEl');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ 刷新中…'; }
+  try {
+    var d = await api('/api/news/refresh', {method:'POST'});
+    if(d && d.news) {
+      renderNews(d.news, d.updated_at||'');
+    }
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 刷新失败';
+  } finally {
+    // btn is re-rendered by renderNews, no need to reset
+  }
+}
+
+// ── 美股 新闻渲染 + 刷新 ──
+function usRenderNews(news, ts) {
+  var el = document.getElementById('usNewsEl'); if(!el) return;
+  var newsH = '<div class="card" style="margin-top:16px">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    + '<div class="sec-lbl" style="margin:0">今日美股要闻</div>'
+    + '<button id="usNewsRefreshBtn" class="btn btn-g btn-sm" style="font-size:11px" onclick="usRefreshNews()">↻ 刷新</button>'
+    + (ts ? '<span id="usNewsTsEl" style="font-size:11px;color:var(--mu)">'+ts+'</span>' : '<span id="usNewsTsEl"></span>')
+    + '</div>';
+  (news||[]).forEach(function(n){
     var title = typeof n==='string' ? n : (n.title||'');
     var url   = typeof n==='string' ? '' : (n.url||n.link||'');
     newsH += '<div class="news-item"><span class="ndot">▸</span>'
-      +(url ? '<a href="'+url+'" target="_blank">'+title+'</a>' : '<span style="color:var(--mu)">'+title+'</span>')
-      +'</div>';
+      + (url ? '<a href="'+url+'" target="_blank">'+title+'</a>' : '<span style="color:var(--mu)">'+title+'</span>')
+      + '</div>';
   });
   newsH += '</div><div class="disc">⚠ 本报告由AI自动生成，仅供参考，不构成投资建议。</div>';
-  document.getElementById('usNewsEl').innerHTML = newsH;
+  el.innerHTML = newsH;
 }
 
+async function usRefreshNews() {
+  var btn = document.getElementById('usNewsRefreshBtn');
+  var tsEl = document.getElementById('usNewsTsEl');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ 刷新中…'; }
+  try {
+    var d = await api('/api/us/news/refresh', {method:'POST'});
+    if(d && d.news) {
+      usRenderNews(d.news, d.updated_at||'');
+    }
+  } catch(e) {
+    if(tsEl) tsEl.textContent = '❌ 刷新失败';
+  }
+}
 
 // ── 美股 自选股分析 独立渲染 ──
 function usRenderWatchlist(stocks, wla, ts) {
@@ -4377,7 +4473,6 @@ async function usSavePortEntry() {
   }
   await api('/api/us/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.port)});
   closeModal('portModal'); usRenderPort();
-  usRefreshPortPrices();
 }
 
 async function usDelPort(ticker) {
@@ -4507,7 +4602,6 @@ async function usSaveVPortEntry() {
   }
   await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
   closeModal('portModal'); usRenderVPort();
-  usRefreshPortPrices();
 }
 
 async function usUpdVPort(ticker,field,val) {
