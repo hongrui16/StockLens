@@ -1,7 +1,7 @@
 {
-  "NVDA": {
-    "name": "NVIDIA",
-    "quantity": 100,
-    "avg_price": 100
+  "AMD": {
+    "name": "AMD",
+    "quantity": 10,
+    "avg_price": 200
   }
 }

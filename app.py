@@ -3182,6 +3182,7 @@ async function saveVPortEntry() {
   }
   await api('/api/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.vport)});
   closeModal('portModal'); renderVPort();
+  refreshPortPrices();
 }
 
 async function updVPort(code,field,val) {
@@ -3267,6 +3268,7 @@ async function savePortEntry() {
   }
   await api('/api/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.port)});
   closeModal('portModal'); renderPort();
+  refreshPortPrices();
 }
 
 // ── AI诊股 ──
@@ -4375,6 +4377,7 @@ async function usSavePortEntry() {
   }
   await api('/api/us/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.port)});
   closeModal('portModal'); usRenderPort();
+  usRefreshPortPrices();
 }
 
 async function usDelPort(ticker) {
@@ -4504,6 +4507,7 @@ async function usSaveVPortEntry() {
   }
   await api('/api/us/virtual/portfolio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(US.vport)});
   closeModal('portModal'); usRenderVPort();
+  usRefreshPortPrices();
 }
 
 async function usUpdVPort(ticker,field,val) {
